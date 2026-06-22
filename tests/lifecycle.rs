@@ -43,6 +43,6 @@ fn server_constructs_and_runs_to_ok() {
 
 #[test]
 fn scheduler_runs_to_ok() {
-    let mut scheduler = Scheduler;
+    let mut scheduler = Scheduler::new();
     assert!(block_on(scheduler.run()).is_ok());
 }

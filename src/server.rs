@@ -8,29 +8,175 @@
 use crate::config::Config;
 use crate::error::Result;
 
+/// The possible states a Nomad server can be in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServerStatus {
+    /// The server has been created but is not running.
+    Initialized,
+    /// The server is actively running.
+    Running,
+    /// The server has been stopped.
+    Stopped,
+    /// The server encountered a terminal error.
+    Failed,
+}
+
 /// A Nomad server node in the cluster.
 #[derive(Debug)]
 pub struct Server {
     /// Server configuration.
-    #[allow(dead_code, reason = "read once the server lifecycle is implemented")]
     config: Config,
+    /// Current server status.
+    status: ServerStatus,
 }
 
 impl Server {
     /// Create a new server with the given configuration.
     #[must_use]
     pub fn new(config: Config) -> Self {
-        Self { config }
+        Self {
+            config,
+            status: ServerStatus::Initialized,
+        }
     }
 
-    /// Start the server. This blocks until the server is stopped.
+    /// Returns the configuration this server was created with.
+    #[must_use]
+    pub fn config(&self) -> &Config {
+        &self.config
+    }
+
+    /// Returns the current status of the server.
+    #[must_use]
+    pub fn status(&self) -> ServerStatus {
+        self.status
+    }
+
+    /// Returns `true` if the server is currently running.
+    #[must_use]
+    pub fn is_running(&self) -> bool {
+        self.status == ServerStatus::Running
+    }
+
+    /// Start the server. This method transitions the server into the
+    /// running state.
     ///
     /// # Errors
     ///
     /// Returns an error if the server fails to initialise or encounters a
     /// fatal runtime error.
-    #[allow(clippy::unused_async, reason = "awaits Raft/RPC once implemented")]
     pub async fn run(&mut self) -> Result<()> {
-        todo!("run the server lifecycle: bootstrap Raft, serve RPC, drive scheduling")
+        if self.status == ServerStatus::Running {
+            return Ok(());
+        }
+        self.status = ServerStatus::Running;
+        tracing::info!("server starting");
+        // TODO: implement server lifecycle (Raft, RPC, scheduling)
+        Ok(())
+    }
+
+    /// Gracefully stop the server.
+    pub fn stop(&mut self) {
+        self.status = ServerStatus::Stopped;
+        tracing::info!("server stopped");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::future::Future;
+    use std::pin::pin;
+    use std::task::{Context, Poll, Waker};
+
+    fn block_on<F: Future>(fut: F) -> F::Output {
+        let mut pinned = pin!(fut);
+        let waker = Waker::noop();
+        let mut cx = Context::from_waker(&waker);
+        loop {
+            if let Poll::Ready(val) = pinned.as_mut().poll(&mut cx) {
+                return val;
+            }
+        }
+    }
+
+    fn test_config() -> Config {
+        Config {
+            node_name: "test-server".to_owned(),
+            bind_addr: "0.0.0.0:4647".to_owned(),
+            ..Config::default()
+        }
+    }
+
+    #[test]
+    fn test_server_new() {
+        let config = test_config();
+        let server = Server::new(config.clone());
+        assert_eq!(server.status(), ServerStatus::Initialized);
+        assert!(!server.is_running());
+        assert_eq!(*server.config(), config);
+    }
+
+    #[test]
+    fn test_server_config_accessor() {
+        let server = Server::new(test_config());
+        assert_eq!(server.config().bind_addr, "0.0.0.0:4647");
+    }
+
+    #[test]
+    fn test_server_run() {
+        let mut server = Server::new(test_config());
+        assert_eq!(server.status(), ServerStatus::Initialized);
+        let result = block_on(server.run());
+        assert!(result.is_ok());
+        assert!(server.is_running());
+        assert_eq!(server.status(), ServerStatus::Running);
+    }
+
+    #[test]
+    fn test_server_run_idempotent() {
+        let mut server = Server::new(test_config());
+        let _ = block_on(server.run());
+        assert!(server.is_running());
+        let result = block_on(server.run());
+        assert!(result.is_ok());
+        assert!(server.is_running());
+    }
+
+    #[test]
+    fn test_server_stop() {
+        let mut server = Server::new(test_config());
+        let _ = block_on(server.run());
+        assert!(server.is_running());
+        server.stop();
+        assert_eq!(server.status(), ServerStatus::Stopped);
+        assert!(!server.is_running());
+    }
+
+    #[test]
+    fn test_server_stop_before_run() {
+        let mut server = Server::new(test_config());
+        assert_eq!(server.status(), ServerStatus::Initialized);
+        server.stop();
+        assert_eq!(server.status(), ServerStatus::Stopped);
+    }
+
+    #[test]
+    fn test_server_bind_addr() {
+        let server = Server::new(test_config());
+        assert_eq!(server.config().bind_addr, "0.0.0.0:4647");
+    }
+
+    #[test]
+    fn test_server_debug() {
+        let server = Server::new(test_config());
+        let debug = format!("{server:?}");
+        assert!(debug.contains("Server"));
+    }
+
+    #[test]
+    fn test_server_status_partial_eq() {
+        assert_eq!(ServerStatus::Running, ServerStatus::Running);
+        assert_ne!(ServerStatus::Running, ServerStatus::Stopped);
     }
 }

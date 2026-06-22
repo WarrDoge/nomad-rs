@@ -232,13 +232,13 @@ implementation) · `[ ]` not started.
 
 ## Reference Material
 
-| Resource | Link |
-|----------|------|
-| Nomad source (MPL-2.0) | `../nomad-original-ref` (local, v1.6.5) |
-| Nomad docs | https://developer.hashicorp.com/nomad/docs |
-| Nomad API spec | https://developer.hashicorp.com/nomad/api-docs |
-| raft-rs | https://github.com/tikv/raft-rs |
-| memberlist (Rust) | https://crates.io/crates/memberlist |
+| Resource | Link | Description |
+|----------|------|-------------|
+| Nomad source (MPL-2.0) | `../nomad-original-ref` (local, v1.6.5) | Upstream HashiCorp Nomad at `a7cfff3`. Go codebase. Module mapping: `scheduler/` → Rust `scheduler, eval, alloc`; `nomad/` → Rust `server, fsm, state, raft`; `client/` → Rust `client, allocrunner, taskrunner`; `command/` → Rust `cli`; `api/` → Rust `api`; `jobspec/` → Rust `jobspec`; `acl/` → Rust `acl`; `drivers/` → Rust `driver`. |
+| Nomad docs | https://developer.hashicorp.com/nomad/docs | |
+| Nomad API spec | https://developer.hashicorp.com/nomad/api-docs | |
+| raft-rs | https://github.com/tikv/raft-rs | |
+| memberlist (Rust) | https://crates.io/crates/memberlist | |
 
 ---
 
