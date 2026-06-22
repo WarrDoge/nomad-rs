@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Nomad job specification types.
 //!
 //! Represents the HCL-based job specification used to define workloads.

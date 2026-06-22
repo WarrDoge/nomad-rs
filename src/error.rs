@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Common error types for the Nomad project.
 //!
 //! Uses `thiserror` for ergonomic error definitions with

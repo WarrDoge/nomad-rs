@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Nomad server — cluster management, scheduling, and state.
 //!
 //! The server handles cluster leadership, job registration, scheduler

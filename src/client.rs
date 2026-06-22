@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Nomad client agent — manages task execution on a node.
 //!
 //! The client communicates with Nomad servers to receive allocations,

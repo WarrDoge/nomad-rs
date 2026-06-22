@@ -1,6 +1,5 @@
 # Rust build artifacts
-/target/
-**/*.rs.bk
+/target
 
 # Rust IDE
 .idea/
@@ -41,8 +40,4 @@ exit-code
 
 # Tooling
 tools/missing/missing
-
-
-# Added by cargo
-
-/target
+Cargo.lock

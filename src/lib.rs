@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! `nomad-rs` — HashiCorp Nomad rewrite in Rust under Apache License 2.0.
 //!
 //! This crate is a from-scratch reimplementation of the Nomad scheduler,

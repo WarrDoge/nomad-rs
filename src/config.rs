@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 //! Configuration types for Nomad client and server agents.
 //!
 //! These types mirror the configuration structure from the original Nomad
