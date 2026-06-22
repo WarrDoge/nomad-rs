@@ -12,19 +12,15 @@ use crate::error::Result;
 #[derive(Debug)]
 pub struct Server {
     /// Server configuration.
+    #[allow(dead_code, reason = "read once the server lifecycle is implemented")]
     config: Config,
-    /// Whether the server is currently running.
-    running: bool,
 }
 
 impl Server {
     /// Create a new server with the given configuration.
     #[must_use]
     pub fn new(config: Config) -> Self {
-        Self {
-            config,
-            running: false,
-        }
+        Self { config }
     }
 
     /// Start the server. This blocks until the server is stopped.
@@ -33,11 +29,8 @@ impl Server {
     ///
     /// Returns an error if the server fails to initialise or encounters a
     /// fatal runtime error.
+    #[allow(clippy::unused_async, reason = "awaits Raft/RPC once implemented")]
     pub async fn run(&mut self) -> Result<()> {
-        self.running = true;
-        tracing::info!("server starting");
-        // TODO: implement server lifecycle (Raft, RPC, scheduling)
-        self.running = false;
-        Ok(())
+        todo!("run the server lifecycle: bootstrap Raft, serve RPC, drive scheduling")
     }
 }

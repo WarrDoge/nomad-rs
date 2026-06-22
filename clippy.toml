@@ -1,0 +1,4 @@
+# Test code is allowed the ergonomic panicking helpers the production lints deny.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true

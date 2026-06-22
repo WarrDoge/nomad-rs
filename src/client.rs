@@ -12,19 +12,15 @@ use crate::error::Result;
 #[derive(Debug)]
 pub struct Client {
     /// Client configuration.
+    #[allow(dead_code, reason = "read once the client lifecycle is implemented")]
     config: Config,
-    /// Whether the client is currently running.
-    running: bool,
 }
 
 impl Client {
     /// Create a new client with the given configuration.
     #[must_use]
     pub fn new(config: Config) -> Self {
-        Self {
-            config,
-            running: false,
-        }
+        Self { config }
     }
 
     /// Start the client agent. This blocks until the client is stopped.
@@ -33,11 +29,8 @@ impl Client {
     ///
     /// Returns an error if the client fails to initialise or encounters a
     /// fatal runtime error.
+    #[allow(clippy::unused_async, reason = "awaits driver I/O once implemented")]
     pub async fn run(&mut self) -> Result<()> {
-        self.running = true;
-        tracing::info!("client starting");
-        // TODO: implement client agent lifecycle
-        self.running = false;
-        Ok(())
+        todo!("run the client agent lifecycle: fingerprint, register, pull allocs, run tasks")
     }
 }
