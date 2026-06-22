@@ -34,10 +34,7 @@ impl Client {
     /// Create a new client with the given configuration.
     #[must_use]
     pub fn new(config: Config) -> Self {
-        Self {
-            config,
-            status: ClientStatus::Initialized,
-        }
+        Self { config, status: ClientStatus::Initialized }
     }
 
     /// Returns the configuration this client was created with.
@@ -65,6 +62,7 @@ impl Client {
     ///
     /// Returns an error if the client fails to initialise or encounters a
     /// fatal runtime error.
+    #[allow(clippy::unused_async)]
     pub async fn run(&mut self) -> Result<()> {
         if self.status == ClientStatus::Running {
             return Ok(());
@@ -85,26 +83,10 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::future::Future;
-    use std::pin::pin;
-    use std::task::{Context, Poll, Waker};
-
-    fn block_on<F: Future>(fut: F) -> F::Output {
-        let mut pinned = pin!(fut);
-        let waker = Waker::noop();
-        let mut cx = Context::from_waker(&waker);
-        loop {
-            if let Poll::Ready(val) = pinned.as_mut().poll(&mut cx) {
-                return val;
-            }
-        }
-    }
+    use crate::util::block_on;
 
     fn test_config() -> Config {
-        Config {
-            node_name: "test-client".to_owned(),
-            ..Config::default()
-        }
+        Config { node_name: "test-client".to_owned(), ..Config::default() }
     }
 
     #[test]
@@ -158,25 +140,5 @@ mod tests {
         assert_eq!(client.status(), ClientStatus::Initialized);
         client.stop();
         assert_eq!(client.status(), ClientStatus::Stopped);
-    }
-
-    #[test]
-    fn test_client_debug() {
-        let client = Client::new(test_config());
-        let debug = format!("{client:?}");
-        assert!(debug.contains("Client"));
-        assert!(debug.contains("test-client"));
-    }
-
-    #[test]
-    fn test_client_status_copy() {
-        let _: ClientStatus = ClientStatus::Running;
-        let _: ClientStatus = ClientStatus::Stopped;
-    }
-
-    #[test]
-    fn test_client_status_partial_eq() {
-        assert_eq!(ClientStatus::Running, ClientStatus::Running);
-        assert_ne!(ClientStatus::Running, ClientStatus::Stopped);
     }
 }

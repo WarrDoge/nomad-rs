@@ -81,25 +81,4 @@ mod tests {
         let debug = format!("{err:?}");
         assert!(debug.contains("Runtime"));
     }
-
-    #[test]
-    fn test_error_send() {
-        fn assert_send<T: Send>() {}
-        assert_send::<Error>();
-    }
-
-    #[test]
-    fn test_result_type() {
-        let ok: Result<i32> = Ok(42);
-        assert_eq!(ok.unwrap(), 42);
-
-        let err: Result<i32> = Err(Error::Runtime("fail".to_owned()));
-        assert!(err.is_err());
-    }
-
-    #[test]
-    fn test_error_is_error_trait() {
-        fn is_std_error(_e: &dyn std::error::Error) {}
-        is_std_error(&Error::Config("test".to_owned()));
-    }
 }

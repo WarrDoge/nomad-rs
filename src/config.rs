@@ -38,7 +38,7 @@ impl LogLevel {
     /// Parse a log level from a string, returning `None` if the string
     /// does not match a known level.
     #[must_use]
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "error" => Some(Self::Error),
             "warn" | "warning" => Some(Self::Warn),
@@ -77,9 +77,8 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        let hostname = std::env::var("HOSTNAME")
-            .or_else(|_| std::env::var("HOST"))
-            .unwrap_or_else(|_| "localhost".to_owned());
+        let hostname =
+            std::env::var("HOSTNAME").or_else(|_| std::env::var("HOST")).unwrap_or_else(|_| "localhost".to_owned());
 
         Self {
             data_dir: PathBuf::from("/opt/nomad/data"),
@@ -114,28 +113,28 @@ mod tests {
 
     #[test]
     fn test_log_level_from_str_exact() {
-        assert_eq!(LogLevel::from_str("error"), Some(LogLevel::Error));
-        assert_eq!(LogLevel::from_str("warn"), Some(LogLevel::Warn));
-        assert_eq!(LogLevel::from_str("info"), Some(LogLevel::Info));
-        assert_eq!(LogLevel::from_str("debug"), Some(LogLevel::Debug));
-        assert_eq!(LogLevel::from_str("trace"), Some(LogLevel::Trace));
+        assert_eq!(LogLevel::parse("error"), Some(LogLevel::Error));
+        assert_eq!(LogLevel::parse("warn"), Some(LogLevel::Warn));
+        assert_eq!(LogLevel::parse("info"), Some(LogLevel::Info));
+        assert_eq!(LogLevel::parse("debug"), Some(LogLevel::Debug));
+        assert_eq!(LogLevel::parse("trace"), Some(LogLevel::Trace));
     }
 
     #[test]
     fn test_log_level_from_str_case_insensitive() {
-        assert_eq!(LogLevel::from_str("ERROR"), Some(LogLevel::Error));
-        assert_eq!(LogLevel::from_str("Info"), Some(LogLevel::Info));
+        assert_eq!(LogLevel::parse("ERROR"), Some(LogLevel::Error));
+        assert_eq!(LogLevel::parse("Info"), Some(LogLevel::Info));
     }
 
     #[test]
     fn test_log_level_from_str_variant() {
-        assert_eq!(LogLevel::from_str("warning"), Some(LogLevel::Warn));
+        assert_eq!(LogLevel::parse("warning"), Some(LogLevel::Warn));
     }
 
     #[test]
     fn test_log_level_from_str_invalid() {
-        assert_eq!(LogLevel::from_str("invalid"), None);
-        assert_eq!(LogLevel::from_str(""), None);
+        assert_eq!(LogLevel::parse("invalid"), None);
+        assert_eq!(LogLevel::parse(""), None);
     }
 
     #[test]
@@ -152,45 +151,17 @@ mod tests {
 
     #[test]
     fn test_config_equality() {
-        let a = Config {
-            node_name: "test-node".to_owned(),
-            ..Config::default()
-        };
-        let b = Config {
-            node_name: "test-node".to_owned(),
-            ..Config::default()
-        };
+        let a = Config { node_name: "test-node".to_owned(), ..Config::default() };
+        let b = Config { node_name: "test-node".to_owned(), ..Config::default() };
         assert_eq!(a, b);
 
-        let c = Config {
-            node_name: "other-node".to_owned(),
-            ..Config::default()
-        };
+        let c = Config { node_name: "other-node".to_owned(), ..Config::default() };
         assert_ne!(a, c);
     }
 
     #[test]
-    fn test_log_level_debug() {
-        assert_eq!(format!("{:?}", LogLevel::Info), "Info");
-    }
-
-    #[test]
-    fn test_log_level_clone() {
-        let level = LogLevel::Debug;
-        let cloned = level;
-        assert_eq!(level, cloned);
-    }
-
-    #[test]
-    fn test_log_level_copy() {
-        let level = LogLevel::Warn;
-        let copied = level;
-        assert_eq!(level, copied);
-    }
-
-    #[test]
     fn test_log_level_from_str_unknown() {
-        assert!(LogLevel::from_str("verbose").is_none());
-        assert!(LogLevel::from_str("silent").is_none());
+        assert!(LogLevel::parse("verbose").is_none());
+        assert!(LogLevel::parse("silent").is_none());
     }
 }

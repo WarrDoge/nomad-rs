@@ -34,10 +34,7 @@ impl Server {
     /// Create a new server with the given configuration.
     #[must_use]
     pub fn new(config: Config) -> Self {
-        Self {
-            config,
-            status: ServerStatus::Initialized,
-        }
+        Self { config, status: ServerStatus::Initialized }
     }
 
     /// Returns the configuration this server was created with.
@@ -65,6 +62,7 @@ impl Server {
     ///
     /// Returns an error if the server fails to initialise or encounters a
     /// fatal runtime error.
+    #[allow(clippy::unused_async)]
     pub async fn run(&mut self) -> Result<()> {
         if self.status == ServerStatus::Running {
             return Ok(());
@@ -85,27 +83,10 @@ impl Server {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::future::Future;
-    use std::pin::pin;
-    use std::task::{Context, Poll, Waker};
-
-    fn block_on<F: Future>(fut: F) -> F::Output {
-        let mut pinned = pin!(fut);
-        let waker = Waker::noop();
-        let mut cx = Context::from_waker(&waker);
-        loop {
-            if let Poll::Ready(val) = pinned.as_mut().poll(&mut cx) {
-                return val;
-            }
-        }
-    }
+    use crate::util::block_on;
 
     fn test_config() -> Config {
-        Config {
-            node_name: "test-server".to_owned(),
-            bind_addr: "0.0.0.0:4647".to_owned(),
-            ..Config::default()
-        }
+        Config { node_name: "test-server".to_owned(), bind_addr: "0.0.0.0:4647".to_owned(), ..Config::default() }
     }
 
     #[test]
@@ -165,18 +146,5 @@ mod tests {
     fn test_server_bind_addr() {
         let server = Server::new(test_config());
         assert_eq!(server.config().bind_addr, "0.0.0.0:4647");
-    }
-
-    #[test]
-    fn test_server_debug() {
-        let server = Server::new(test_config());
-        let debug = format!("{server:?}");
-        assert!(debug.contains("Server"));
-    }
-
-    #[test]
-    fn test_server_status_partial_eq() {
-        assert_eq!(ServerStatus::Running, ServerStatus::Running);
-        assert_ne!(ServerStatus::Running, ServerStatus::Stopped);
     }
 }

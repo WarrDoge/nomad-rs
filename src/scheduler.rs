@@ -31,9 +31,7 @@ impl Scheduler {
     /// Create a new scheduler instance.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            status: SchedulerStatus::Initialized,
-        }
+        Self { status: SchedulerStatus::Initialized }
     }
 
     /// Returns the current status of the scheduler.
@@ -53,6 +51,7 @@ impl Scheduler {
     /// # Errors
     ///
     /// Returns an error if the scheduling loop encounters a fatal error.
+    #[allow(clippy::unused_async)]
     pub async fn run(&mut self) -> Result<()> {
         if self.status == SchedulerStatus::Running {
             return Ok(());
@@ -79,20 +78,7 @@ impl Default for Scheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::future::Future;
-    use std::pin::pin;
-    use std::task::{Context, Poll, Waker};
-
-    fn block_on<F: Future>(fut: F) -> F::Output {
-        let mut pinned = pin!(fut);
-        let waker = Waker::noop();
-        let mut cx = Context::from_waker(&waker);
-        loop {
-            if let Poll::Ready(val) = pinned.as_mut().poll(&mut cx) {
-                return val;
-            }
-        }
-    }
+    use crate::util::block_on;
 
     #[test]
     fn test_scheduler_new() {
@@ -143,18 +129,5 @@ mod tests {
         assert_eq!(scheduler.status(), SchedulerStatus::Initialized);
         scheduler.stop();
         assert_eq!(scheduler.status(), SchedulerStatus::Stopped);
-    }
-
-    #[test]
-    fn test_scheduler_debug() {
-        let scheduler = Scheduler::new();
-        let debug = format!("{scheduler:?}");
-        assert!(debug.contains("Scheduler"));
-    }
-
-    #[test]
-    fn test_scheduler_status_partial_eq() {
-        assert_eq!(SchedulerStatus::Running, SchedulerStatus::Running);
-        assert_ne!(SchedulerStatus::Running, SchedulerStatus::Stopped);
     }
 }

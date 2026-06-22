@@ -7,6 +7,7 @@
 //! lifecycle surface stays covered as real behaviour lands behind it.
 
 use std::future::Future;
+use std::pin::pin;
 use std::task::{Context, Poll, Waker};
 
 use nomad_rs::client::Client;
@@ -14,17 +15,13 @@ use nomad_rs::config::Config;
 use nomad_rs::scheduler::Scheduler;
 use nomad_rs::server::Server;
 
-/// Drive a future to completion on the current thread using a no-op waker.
-///
-/// ponytail: busy-poll, no runtime dep. Fine because the stub futures are
-/// `Ready` on first poll; swap for a real executor when they actually await.
 fn block_on<F: Future>(fut: F) -> F::Output {
-    let mut fut = std::pin::pin!(fut);
+    let mut pinned = pin!(fut);
     let waker = Waker::noop();
     let mut cx = Context::from_waker(waker);
     loop {
-        if let Poll::Ready(value) = fut.as_mut().poll(&mut cx) {
-            return value;
+        if let Poll::Ready(val) = pinned.as_mut().poll(&mut cx) {
+            return val;
         }
     }
 }
