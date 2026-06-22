@@ -281,13 +281,13 @@ mod tests {
 
     #[test]
     fn test_job_validate_priority_too_low() {
-        let job = Job { priority: 0, ..Job::default() };
+        let job = Job { name: "test".to_owned(), priority: 0, ..Job::default() };
         assert!(job.validate().unwrap_err().to_string().contains("priority"));
     }
 
     #[test]
     fn test_job_validate_priority_too_high() {
-        let job = Job { priority: 101, ..Job::default() };
+        let job = Job { name: "test".to_owned(), priority: 101, ..Job::default() };
         assert!(job.validate().unwrap_err().to_string().contains("priority"));
     }
 
