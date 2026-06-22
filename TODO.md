@@ -27,13 +27,13 @@
 
 ### Consensus & Cluster Membership
 - [ ] Raft consensus (using `raft-rs` or similar)
-- [ ] Serf gossip protocol for cluster membership
+- [ ] Serf gossip protocol for cluster membership (or `memberlist` crate)
 - [ ] Leader election
 - [ ] Cluster state machine (jobs, evaluations, allocations)
 
 ### RPC Layer
 - [ ] mTLS transport
-- [ ] RPC server (gRPC or custom protocol)
+- [ ] RPC server (custom protocol over mTLS)
 - [ ] RPC client for node-to-server communication
 - [ ] Forwarding to leader
 
@@ -195,7 +195,7 @@
 | Nomad docs | https://developer.hashicorp.com/nomad/docs |
 | Nomad API spec | https://developer.hashicorp.com/nomad/api-docs |
 | raft-rs | https://github.com/tikv/raft-rs |
-| serf-rs | https://github.com/serf-rs/serf |
+| memberlist (Rust) | https://crates.io/crates/memberlist |
 
 ---
 
