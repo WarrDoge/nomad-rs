@@ -17,7 +17,7 @@ use std::task::{Context, Poll, Waker};
 pub fn block_on<F: Future>(fut: F) -> F::Output {
     let mut pinned = pin!(fut);
     let waker = Waker::noop();
-    let mut cx = Context::from_waker(&waker);
+    let mut cx = Context::from_waker(waker);
     loop {
         if let Poll::Ready(val) = pinned.as_mut().poll(&mut cx) {
             return val;

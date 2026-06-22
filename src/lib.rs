@@ -119,6 +119,5 @@ pub mod drain;
 /// Error types used across the project.
 pub mod error;
 
-/// Internal test utilities.
 #[doc(hidden)]
 pub mod util;

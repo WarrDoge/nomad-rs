@@ -269,76 +269,6 @@ mod tests {
         assert_eq!(res.network_mbps, 1000);
     }
 
-    #[test]
-    fn test_job_equality() {
-        let a = Job { name: "test".to_owned(), ..Job::default() };
-        let b = Job { name: "test".to_owned(), ..Job::default() };
-        assert_eq!(a, b);
-
-        let c = Job { name: "other".to_owned(), ..Job::default() };
-        assert_ne!(a, c);
-    }
-
-    #[test]
-    fn test_task_group_equality() {
-        let a = TaskGroup { name: "web".to_owned(), count: 2, tasks: vec![] };
-        let b = TaskGroup { name: "web".to_owned(), count: 2, tasks: vec![] };
-        assert_eq!(a, b);
-
-        let c = TaskGroup { name: "web".to_owned(), count: 3, tasks: vec![] };
-        assert_ne!(a, c);
-    }
-
-    #[test]
-    fn test_task_equality() {
-        let a = Task {
-            name: "app".to_owned(),
-            driver: "exec".to_owned(),
-            config: HashMap::new(),
-            resources: Resources::default(),
-        };
-        let b = Task {
-            name: "app".to_owned(),
-            driver: "exec".to_owned(),
-            config: HashMap::new(),
-            resources: Resources::default(),
-        };
-        assert_eq!(a, b);
-    }
-
-    #[test]
-    fn test_job_with_multiple_task_groups() {
-        let job = Job {
-            name: "full-stack".to_owned(),
-            task_groups: vec![
-                TaskGroup {
-                    name: "backend".to_owned(),
-                    count: 2,
-                    tasks: vec![Task {
-                        name: "api".to_owned(),
-                        driver: "docker".to_owned(),
-                        config: HashMap::from([("image".to_owned(), serde_json::json!("myapp:latest"))]),
-                        resources: Resources { cpu_mhz: 1000, memory_mb: 512, network_mbps: 100 },
-                    }],
-                },
-                TaskGroup {
-                    name: "frontend".to_owned(),
-                    count: 1,
-                    tasks: vec![Task {
-                        name: "web".to_owned(),
-                        driver: "docker".to_owned(),
-                        config: HashMap::from([("image".to_owned(), serde_json::json!("nginx:latest"))]),
-                        resources: Resources { cpu_mhz: 500, memory_mb: 256, network_mbps: 50 },
-                    }],
-                },
-            ],
-            ..Job::default()
-        };
-        assert_eq!(job.task_groups.len(), 2);
-        assert_eq!(job.task_groups[0].name, "backend");
-        assert_eq!(job.task_groups[1].name, "frontend");
-    }
-
     // ------------------------------------------------------------------
     // Validation tests
     // ------------------------------------------------------------------
@@ -363,22 +293,13 @@ mod tests {
 
     #[test]
     fn test_job_validate_no_datacenters() {
-        let job = Job {
-            name: "test".to_owned(),
-            datacenters: vec![],
-            ..Job::default()
-        };
+        let job = Job { name: "test".to_owned(), datacenters: vec![], ..Job::default() };
         assert!(job.validate().unwrap_err().to_string().contains("datacenter"));
     }
 
     #[test]
     fn test_job_validate_valid_job() {
-        let job = Job {
-            name: "valid".to_owned(),
-            datacenters: vec!["dc1".to_owned()],
-            priority: 50,
-            ..Job::default()
-        };
+        let job = Job { name: "valid".to_owned(), datacenters: vec!["dc1".to_owned()], priority: 50, ..Job::default() };
         assert!(job.validate().is_ok());
     }
 

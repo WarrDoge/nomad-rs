@@ -6,25 +6,11 @@
 //! configuration, runs once, and returns `Ok`. They exist so the public
 //! lifecycle surface stays covered as real behaviour lands behind it.
 
-use std::future::Future;
-use std::pin::pin;
-use std::task::{Context, Poll, Waker};
-
 use nomad_rs::client::Client;
 use nomad_rs::config::Config;
 use nomad_rs::scheduler::Scheduler;
 use nomad_rs::server::Server;
-
-fn block_on<F: Future>(fut: F) -> F::Output {
-    let mut pinned = pin!(fut);
-    let waker = Waker::noop();
-    let mut cx = Context::from_waker(waker);
-    loop {
-        if let Poll::Ready(val) = pinned.as_mut().poll(&mut cx) {
-            return val;
-        }
-    }
-}
+use nomad_rs::util::block_on;
 
 #[test]
 fn client_constructs_and_runs_to_ok() {
