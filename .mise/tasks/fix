@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# mise task: fix
+# Auto-fix formatting and clippy warnings
+set -euo pipefail
+
+echo "=== cargo fmt ==="
+cargo fmt
+
+echo "=== cargo clippy --fix ==="
+cargo clippy --fix --all-targets --all-features --allow-dirty 2>&1 || true
+
+echo "=== cargo check ==="
+cargo check --all-targets --all-features

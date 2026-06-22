@@ -1,0 +1,12 @@
+# Strict formatting
+max_width = 120
+tab_spaces = 4
+edition = "2024"
+imports_granularity = "Crate"
+group_imports = "StdExternalCrate"
+use_small_heuristics = "Max"
+match_block_trailing_comma = true
+normalize_comments = true
+normalize_doc_attributes = true
+format_strings = true
+reorder_impl_items = true
