@@ -1,0 +1,43 @@
+# Rust build artifacts
+/target
+
+# Rust IDE
+.idea/
+.fleet/
+.vscode/
+*.iml
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Generated files
+*.log
+*.old
+*.attr
+/tags
+/bin/
+/pkg/
+
+# Nomad configuration (user-specific)
+/*.hcl
+/example.nomad
+/example.nomad.hcl
+/spec.hcl
+/volume.hcl
+
+# Test files
+exit-code
+
+# Vagrant
+.vagrant/
+
+# Terraform
+.terraform/
+*.tfstate*
+.terraform.lock.hcl
+
+# Tooling
+tools/missing/missing
+Cargo.lock

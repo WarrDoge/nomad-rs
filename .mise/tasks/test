@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# mise task: test
+# Run tests
+set -euo pipefail
+
+echo "=== cargo test ==="
+cargo test --all-targets --all-features
+
+echo "=== cargo doc ==="
+cargo doc --no-deps --all-features

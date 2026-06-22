@@ -1,0 +1,51 @@
+[package]
+name = "nomad-rs"
+version = "0.1.0"
+edition = "2024"
+description = "Hashicorp Nomad rewrite in Rust under Apache License 2.0"
+license = "Apache-2.0"
+repository = "https://github.com/WarrDoge/nomad-rs"
+keywords = ["nomad", "scheduler", "orchestration", "cluster", "hashicorp"]
+categories = ["command-line-utilities", "network-programming"]
+
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+nonstandard_style = "deny"
+rust_2018_idioms = "deny"
+future_incompatible = "deny"
+noop_method_call = "deny"
+trivial_casts = "deny"
+trivial_numeric_casts = "deny"
+unused_import_braces = "deny"
+unused_qualifications = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+dbg_macro = "deny"
+print_stdout = "deny"
+print_stderr = "deny"
+wildcard_imports = "deny"
+missing_docs_in_private_items = "deny"
+missing_safety_doc = "deny"
+must_use_candidate = "deny"
+return_self_not_must_use = "deny"
+semicolon_if_nothing_returned = "deny"
+unnecessary_safety_comment = "deny"
+unnecessary_self_imports = "deny"
+use_self = "deny"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+
+[dependencies]
+tracing = "0.1"
+serde_json = "1"
+thiserror = "2"
