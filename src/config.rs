@@ -63,13 +63,17 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
+        let hostname = std::env::var("HOSTNAME")
+            .or_else(|_| std::env::var("HOST"))
+            .unwrap_or_else(|_| "localhost".to_owned());
+
         Self {
             data_dir: PathBuf::from("/opt/nomad/data"),
             log_dir: PathBuf::from("/opt/nomad/log"),
             log_level: LogLevel::Info,
             bind_addr: "0.0.0.0:4646".to_owned(),
             datacenter: "dc1".to_owned(),
-            node_name: String::new(),
+            node_name: hostname,
             region: "global".to_owned(),
         }
     }
