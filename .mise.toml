@@ -1,0 +1,22 @@
+[tools]
+rust = "latest"
+# Pin nushell as the default shell — sourced from GitHub releases via aqua
+"aqua:nushell/nushell" = "latest"
+
+# cargo-deny installed manually (not through mise)
+
+[env]
+RUSTFLAGS = "-D warnings"
+CARGO_REGISTRIES_CRATES_IO_PROTOCOL = "sparse"
+
+[tasks.check-all]
+run = "./.mise/tasks/check-all"
+
+[tasks.test]
+run = "./.mise/tasks/test"
+
+[tasks.lint]
+run = "./.mise/tasks/lint"
+
+[tasks.fix]
+run = "./.mise/tasks/fix"
