@@ -84,39 +84,7 @@ fn eval_regexp(val: &str, pattern: &str) -> bool {
 /// Evaluate a version constraint via the `semver` crate.
 fn eval_version(val: &str, constraint: &str) -> bool {
     let Ok(ver) = semver::Version::parse(val) else { return false };
-    // Support common operator-prefixed constraints: ">=1.2.3", "<2.0", "=1.0.0", "~1.0", "^1.0"
-    let constraint = constraint.trim();
-    if let Some(req) = constraint.strip_prefix(">=") {
-        let Ok(req) = semver::VersionReq::parse(&format!(">={req}")) else { return false };
-        return req.matches(&ver);
-    }
-    if let Some(req) = constraint.strip_prefix("<=") {
-        let Ok(req) = semver::VersionReq::parse(&format!("<={req}")) else { return false };
-        return req.matches(&ver);
-    }
-    if let Some(req) = constraint.strip_prefix('>') {
-        let Ok(req) = semver::VersionReq::parse(&format!(">{req}")) else { return false };
-        return req.matches(&ver);
-    }
-    if let Some(req) = constraint.strip_prefix('<') {
-        let Ok(req) = semver::VersionReq::parse(&format!("<{req}")) else { return false };
-        return req.matches(&ver);
-    }
-    if let Some(req) = constraint.strip_prefix('=') {
-        let Ok(req) = semver::VersionReq::parse(&format!("={req}")) else { return false };
-        return req.matches(&ver);
-    }
-    if let Some(req) = constraint.strip_prefix('~') {
-        let Ok(req) = semver::VersionReq::parse(&format!("~{req}")) else { return false };
-        return req.matches(&ver);
-    }
-    if let Some(req) = constraint.strip_prefix('^') {
-        let Ok(req) = semver::VersionReq::parse(&format!("^{req}")) else { return false };
-        return req.matches(&ver);
-    }
-    // Bare version string = exact match
-    let Ok(req) = semver::VersionReq::parse(constraint) else { return false };
-    req.matches(&ver)
+    semver::VersionReq::parse(constraint.trim()).is_ok_and(|req| req.matches(&ver))
 }
 
 /// A soft placement preference with a weight; nudges ranking, never excludes.
