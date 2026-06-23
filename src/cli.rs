@@ -3,7 +3,7 @@
 //! CLI command parsing contract.
 //!
 //! Parses an argv slice into a command name and its arguments. The concrete
-//! arg-parsing crate lives behind [`parse`]. Behaviour is specified by the
+//! arg-parsing crate lives behind [`crate::cli::parse`]. Behaviour is specified by the
 //! tests and is unimplemented.
 
 use crate::error::Result;

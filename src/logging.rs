@@ -3,7 +3,7 @@
 //! Logging subsystem initialisation.
 //!
 //! Sets up a `tracing` subscriber with env-filter support and optional
-//! file rotation.  Call [`init`] once at process start.
+//! file rotation.  Call [`crate::logging::init`] once at process start.
 
 use std::path::Path;
 

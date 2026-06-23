@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Agent lifecycle — the top-level orchestrator that holds a [`Client`]
-//! and/or [`Server`] process and drives their graceful lifecycle.
+//! Agent lifecycle — the top-level orchestrator that holds a [`crate::client::Client`]
+//! and/or [`crate::server::Server`] process and drives their graceful lifecycle.
 
 use std::time::Duration;
 
