@@ -127,3 +127,6 @@ pub mod error;
 
 /// Logging subsystem initialisation.
 pub mod logging;
+
+/// Client-local persistent state (SQLite-backed).
+pub mod client_state;
