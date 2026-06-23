@@ -11,15 +11,12 @@ use std::collections::HashMap;
 use crate::error::{Error, Result};
 
 /// Default job priority (upstream: 50).
-#[allow(dead_code)]
 pub const JOB_DEFAULT_PRIORITY: i32 = 50;
 
 /// Minimum allowed job priority.
-#[allow(dead_code)]
 pub const JOB_MIN_PRIORITY: i32 = 1;
 
 /// Maximum allowed job priority.
-#[allow(dead_code)]
 pub const JOB_MAX_PRIORITY: i32 = 100;
 
 /// A Nomad job represents a set of task groups that run on the cluster.
@@ -44,7 +41,7 @@ impl Default for Job {
             meta: HashMap::new(),
             datacenters: vec!["dc1".to_owned()],
             task_groups: Vec::new(),
-            priority: 50,
+            priority: JOB_DEFAULT_PRIORITY,
         }
     }
 }

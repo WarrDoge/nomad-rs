@@ -10,6 +10,7 @@ use crate::error::Result;
 /// The possible states a scheduler can be in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SchedulerStatus {
+    // TODO: consolidate with ClientStatus/ServerStatus into AgentStatus
     /// The scheduler has been created but is not running.
     Initialized,
     /// The scheduler is actively processing evaluations.
