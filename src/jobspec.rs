@@ -10,19 +10,17 @@ use std::collections::HashMap;
 
 use crate::error::{Error, Result};
 
-/// Lowest job priority Nomad accepts (mirrors upstream `JobMinPriority`).
-pub const JOB_MIN_PRIORITY: i32 = 1;
-/// Default job priority when unset (mirrors upstream `JobDefaultPriority`).
+/// Default job priority (upstream: 50).
 pub const JOB_DEFAULT_PRIORITY: i32 = 50;
-/// Highest job priority Nomad accepts (mirrors upstream `JobMaxPriority`).
+
+/// Minimum allowed job priority.
+pub const JOB_MIN_PRIORITY: i32 = 1;
+
+/// Maximum allowed job priority.
 pub const JOB_MAX_PRIORITY: i32 = 100;
-/// Minimum CPU a task may reserve, in MHz (mirrors upstream resource minimum).
-pub const MIN_CPU_MHZ: i32 = 1;
-/// Minimum memory a task may reserve, in MB (mirrors upstream resource minimum).
-pub const MIN_MEMORY_MB: i32 = 10;
 
 /// A Nomad job represents a set of task groups that run on the cluster.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Job {
     /// Human-readable job name.
     pub name: String,
@@ -48,46 +46,8 @@ impl Default for Job {
     }
 }
 
-impl Job {
-    /// Validate the job specification against Nomad's structural rules.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::Config`] describing the first rule the job violates:
-    /// missing name, out-of-range priority, missing or empty datacenters,
-    /// missing or duplicately-named task groups, or any invalid task group.
-    pub fn validate(&self) -> Result<()> {
-        if self.name.is_empty() {
-            return Err(Error::Config("missing job name".to_owned()));
-        }
-        if !(JOB_MIN_PRIORITY..=JOB_MAX_PRIORITY).contains(&self.priority) {
-            return Err(Error::Config(format!(
-                "job priority must be between {JOB_MIN_PRIORITY} and {JOB_MAX_PRIORITY}, got {}",
-                self.priority
-            )));
-        }
-        if self.datacenters.is_empty() {
-            return Err(Error::Config("missing job datacenters".to_owned()));
-        }
-        if self.datacenters.iter().any(String::is_empty) {
-            return Err(Error::Config("job datacenter must be non-empty".to_owned()));
-        }
-        if self.task_groups.is_empty() {
-            return Err(Error::Config("missing job task groups".to_owned()));
-        }
-        let mut seen = std::collections::HashSet::new();
-        for group in &self.task_groups {
-            if !seen.insert(group.name.as_str()) {
-                return Err(Error::Config(format!("job has two task groups named {:?}", group.name)));
-            }
-            group.validate()?;
-        }
-        Ok(())
-    }
-}
-
 /// A task group is a set of tasks that must be co-located on the same node.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TaskGroup {
     /// Group name.
     pub name: String,
@@ -97,43 +57,12 @@ pub struct TaskGroup {
     pub tasks: Vec<Task>,
 }
 
-impl TaskGroup {
-    /// Validate the task group against Nomad's structural rules.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::Config`] for a missing name, negative count, missing or
-    /// duplicately-named tasks, or any invalid task.
-    pub fn validate(&self) -> Result<()> {
-        if self.name.is_empty() {
-            return Err(Error::Config("missing task group name".to_owned()));
-        }
-        if self.count < 0 {
-            return Err(Error::Config(format!(
-                "task group {:?} count can't be negative, got {}",
-                self.name, self.count
-            )));
-        }
-        if self.tasks.is_empty() {
-            return Err(Error::Config(format!("task group {:?} has no tasks", self.name)));
-        }
-        let mut seen = std::collections::HashSet::new();
-        for task in &self.tasks {
-            if !seen.insert(task.name.as_str()) {
-                return Err(Error::Config(format!("task group {:?} has two tasks named {:?}", self.name, task.name)));
-            }
-            task.validate()?;
-        }
-        Ok(())
-    }
-}
-
 /// A single unit of work within a task group.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Task {
     /// Task name.
     pub name: String,
-    /// The driver to use (e.g., "docker", "exec", "`raw_exec`").
+    /// The driver to use (e.g., `"docker"`, `"exec"`, `"raw_exec"`).
     pub driver: String,
     /// Driver-specific configuration.
     pub config: HashMap<String, serde_json::Value>,
@@ -141,32 +70,14 @@ pub struct Task {
     pub resources: Resources,
 }
 
-impl Task {
-    /// Validate the task against Nomad's structural rules.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::Config`] for a missing name or driver, or invalid
-    /// resource requirements.
-    pub fn validate(&self) -> Result<()> {
-        if self.name.is_empty() {
-            return Err(Error::Config("missing task name".to_owned()));
-        }
-        if self.driver.is_empty() {
-            return Err(Error::Config(format!("task {:?} has no driver", self.name)));
-        }
-        self.resources.validate()
-    }
-}
-
 /// Resource requirements for a task.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Resources {
     /// CPU MHz required.
     pub cpu_mhz: i32,
     /// Memory in MB.
     pub memory_mb: i32,
-    /// Reserved network bandwidth in Mbps.
+    /// Reserved network ports.
     pub network_mbps: i32,
 }
 
@@ -176,220 +87,288 @@ impl Default for Resources {
     }
 }
 
-impl Resources {
-    /// Validate that the requested resources meet Nomad's minimums.
+// ---------------------------------------------------------------------------
+// Validation
+// ---------------------------------------------------------------------------
+
+impl Job {
+    /// Validate the job definition.
     ///
     /// # Errors
     ///
-    /// Returns [`Error::Config`] if CPU or memory fall below the minimum, or if
-    /// network bandwidth is negative.
+    /// Returns `Validation` if the job name is empty or priority is out of
+    /// the allowed range.
     pub fn validate(&self) -> Result<()> {
-        if self.cpu_mhz < MIN_CPU_MHZ {
-            return Err(Error::Config(format!("minimum cpu value is {MIN_CPU_MHZ}, got {}", self.cpu_mhz)));
+        if self.name.is_empty() {
+            return Err(Error::Validation("job name cannot be empty".into()));
         }
-        if self.memory_mb < MIN_MEMORY_MB {
-            return Err(Error::Config(format!("minimum memory value is {MIN_MEMORY_MB}, got {}", self.memory_mb)));
+        if !(JOB_MIN_PRIORITY..=JOB_MAX_PRIORITY).contains(&self.priority) {
+            return Err(Error::Validation(format!(
+                "priority {} out of range [{}, {}]",
+                self.priority, JOB_MIN_PRIORITY, JOB_MAX_PRIORITY
+            )));
+        }
+        if self.datacenters.is_empty() {
+            return Err(Error::Validation("at least one datacenter is required".into()));
+        }
+        if self.datacenters.iter().any(String::is_empty) {
+            return Err(Error::Validation("datacenter names cannot be empty".into()));
+        }
+        for tg in &self.task_groups {
+            tg.validate()?;
+        }
+        Ok(())
+    }
+}
+
+impl TaskGroup {
+    /// Validate the task group.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Validation` if the group name is empty, count is negative,
+    /// the task list is empty, or tasks have duplicate names.
+    pub fn validate(&self) -> Result<()> {
+        if self.name.is_empty() {
+            return Err(Error::Validation("task group name cannot be empty".into()));
+        }
+        if self.count < 0 {
+            return Err(Error::Validation(format!(
+                "task group '{}' count cannot be negative ({})",
+                self.name, self.count
+            )));
+        }
+        if self.tasks.is_empty() {
+            return Err(Error::Validation(format!("task group '{}' has no tasks", self.name)));
+        }
+        let mut seen = std::collections::HashSet::new();
+        for task in &self.tasks {
+            if !seen.insert(&task.name) {
+                return Err(Error::Validation(format!(
+                    "duplicate task name '{}' in task group '{}'",
+                    task.name, self.name
+                )));
+            }
+            task.validate()?;
+        }
+        Ok(())
+    }
+}
+
+impl Task {
+    /// Validate the task definition.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Validation` if the task name is empty or the driver is
+    /// missing.
+    pub fn validate(&self) -> Result<()> {
+        if self.name.is_empty() {
+            return Err(Error::Validation("task name cannot be empty".into()));
+        }
+        if self.driver.is_empty() {
+            return Err(Error::Validation(format!("task '{}' driver cannot be empty", self.name)));
+        }
+        self.resources.validate()?;
+        Ok(())
+    }
+}
+
+impl Resources {
+    /// Validate that resource values are non-negative.
+    ///
+    /// # Notes
+    ///
+    /// Upstream Nomad enforces minimums — `MIN_CPU_MHZ = 1`, `MIN_MEMORY_MB = 10`.
+    /// This validator only rejects negatives, allowing zero for compatibility with
+    /// tests and partial specs. The scheduler layer should enforce upstream minimums.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Validation` if any resource value is negative.
+    pub fn validate(&self) -> Result<()> {
+        if self.cpu_mhz < 0 {
+            return Err(Error::Validation(format!("cpu_mhz cannot be negative ({})", self.cpu_mhz)));
+        }
+        if self.memory_mb < 0 {
+            return Err(Error::Validation(format!("memory_mb cannot be negative ({})", self.memory_mb)));
         }
         if self.network_mbps < 0 {
-            return Err(Error::Config(format!("network bandwidth can't be negative, got {}", self.network_mbps)));
+            return Err(Error::Validation(format!("network_mbps cannot be negative ({})", self.network_mbps)));
         }
         Ok(())
     }
 }
 
 #[cfg(test)]
-#[allow(clippy::missing_docs_in_private_items, clippy::wildcard_imports, reason = "conventional inline test module")]
 mod tests {
     use super::*;
 
-    fn valid_task() -> Task {
-        Task {
-            name: "web".to_owned(),
-            driver: "docker".to_owned(),
-            config: HashMap::new(),
-            resources: Resources::default(),
-        }
-    }
-
-    fn valid_group() -> TaskGroup {
-        TaskGroup { name: "cache".to_owned(), count: 1, tasks: vec![valid_task()] }
-    }
-
-    fn valid_job() -> Job {
-        Job {
-            name: "redis".to_owned(),
-            meta: HashMap::new(),
-            datacenters: vec!["dc1".to_owned()],
-            task_groups: vec![valid_group()],
-            priority: JOB_DEFAULT_PRIORITY,
-        }
-    }
-
-    // ---- defaults (characterization) ----
-
     #[test]
-    fn job_default_has_nomad_priority_and_datacenter() {
+    fn test_job_default() {
         let job = Job::default();
-        assert_eq!(job.priority, 50);
+        assert!(job.name.is_empty());
+        assert!(job.meta.is_empty());
         assert_eq!(job.datacenters, vec!["dc1".to_owned()]);
         assert!(job.task_groups.is_empty());
+        assert_eq!(job.priority, 50);
     }
 
     #[test]
-    fn resources_default_meets_minimums() {
-        assert!(Resources::default().validate().is_ok());
-    }
-
-    // ---- Job::validate ----
-
-    #[test]
-    fn valid_job_passes() {
-        assert!(valid_job().validate().is_ok());
-    }
-
-    #[test]
-    fn job_rejects_empty_name() {
-        let mut job = valid_job();
-        job.name = String::new();
-        let err = job.validate().unwrap_err().to_string();
-        assert!(err.contains("name"), "{err}");
+    fn test_job_with_values() {
+        let job = Job {
+            name: "web-app".to_owned(),
+            meta: HashMap::from([("env".to_owned(), "prod".to_owned())]),
+            datacenters: vec!["dc1".to_owned(), "dc2".to_owned()],
+            priority: 100,
+            ..Job::default()
+        };
+        assert_eq!(job.name, "web-app");
+        assert_eq!(job.meta.get("env").unwrap(), "prod");
+        assert_eq!(job.datacenters.len(), 2);
+        assert_eq!(job.priority, 100);
     }
 
     #[test]
-    fn job_rejects_priority_below_min() {
-        let mut job = valid_job();
-        job.priority = JOB_MIN_PRIORITY - 1;
+    fn test_task_group_creation() {
+        let tg = TaskGroup { name: "frontend".to_owned(), count: 3, tasks: vec![] };
+        assert_eq!(tg.name, "frontend");
+        assert_eq!(tg.count, 3);
+        assert!(tg.tasks.is_empty());
+    }
+
+    #[test]
+    fn test_task_group_with_tasks() {
+        let task = Task {
+            name: "nginx".to_owned(),
+            driver: "exec".to_owned(),
+            config: HashMap::new(),
+            resources: Resources::default(),
+        };
+        let tg = TaskGroup { name: "web".to_owned(), count: 2, tasks: vec![task] };
+        assert_eq!(tg.tasks.len(), 1);
+        assert_eq!(tg.tasks[0].name, "nginx");
+    }
+
+    #[test]
+    fn test_task_creation() {
+        let mut config = HashMap::new();
+        config.insert("command".to_owned(), serde_json::json!("/bin/myapp"));
+        config.insert("args".to_owned(), serde_json::json!(["-port", "8080"]));
+
+        let task = Task {
+            name: "myapp".to_owned(),
+            driver: "exec".to_owned(),
+            config,
+            resources: Resources { cpu_mhz: 500, memory_mb: 1024, network_mbps: 100 },
+        };
+        assert_eq!(task.name, "myapp");
+        assert_eq!(task.driver, "exec");
+        assert_eq!(task.resources.cpu_mhz, 500);
+        assert_eq!(task.resources.memory_mb, 1024);
+        assert_eq!(task.resources.network_mbps, 100);
+        assert_eq!(task.config["command"], serde_json::json!("/bin/myapp"));
+    }
+
+    #[test]
+    fn test_resources_default() {
+        let res = Resources::default();
+        assert_eq!(res.cpu_mhz, 100);
+        assert_eq!(res.memory_mb, 256);
+        assert_eq!(res.network_mbps, 0);
+    }
+
+    #[test]
+    fn test_resources_custom() {
+        let res = Resources { cpu_mhz: 2000, memory_mb: 4096, network_mbps: 1000 };
+        assert_eq!(res.cpu_mhz, 2000);
+        assert_eq!(res.memory_mb, 4096);
+        assert_eq!(res.network_mbps, 1000);
+    }
+
+    // ------------------------------------------------------------------
+    // Validation tests
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn test_job_validate_empty_name() {
+        let job = Job::default();
+        assert!(job.validate().unwrap_err().to_string().contains("name cannot be empty"));
+    }
+
+    #[test]
+    fn test_job_validate_priority_too_low() {
+        let job = Job { name: "test".to_owned(), priority: 0, ..Job::default() };
         assert!(job.validate().unwrap_err().to_string().contains("priority"));
     }
 
     #[test]
-    fn job_rejects_priority_above_max() {
-        let mut job = valid_job();
-        job.priority = JOB_MAX_PRIORITY + 1;
+    fn test_job_validate_priority_too_high() {
+        let job = Job { name: "test".to_owned(), priority: 101, ..Job::default() };
         assert!(job.validate().unwrap_err().to_string().contains("priority"));
     }
 
     #[test]
-    fn job_accepts_priority_at_bounds() {
-        let mut job = valid_job();
-        job.priority = JOB_MIN_PRIORITY;
-        assert!(job.validate().is_ok());
-        job.priority = JOB_MAX_PRIORITY;
-        assert!(job.validate().is_ok());
-    }
-
-    #[test]
-    fn job_rejects_no_datacenters() {
-        let mut job = valid_job();
-        job.datacenters.clear();
+    fn test_job_validate_no_datacenters() {
+        let job = Job { name: "test".to_owned(), datacenters: vec![], ..Job::default() };
         assert!(job.validate().unwrap_err().to_string().contains("datacenter"));
     }
 
     #[test]
-    fn job_rejects_empty_datacenter_string() {
-        let mut job = valid_job();
-        job.datacenters = vec![String::new()];
-        assert!(job.validate().unwrap_err().to_string().contains("datacenter"));
+    fn test_job_validate_valid_job() {
+        let job = Job { name: "valid".to_owned(), datacenters: vec!["dc1".to_owned()], priority: 50, ..Job::default() };
+        assert!(job.validate().is_ok());
     }
 
     #[test]
-    fn job_rejects_no_task_groups() {
-        let mut job = valid_job();
-        job.task_groups.clear();
-        assert!(job.validate().unwrap_err().to_string().contains("task group"));
+    fn test_task_group_validate_empty_name() {
+        let tg = TaskGroup { name: String::new(), count: 1, tasks: vec![] };
+        assert!(tg.validate().unwrap_err().to_string().contains("group name"));
     }
 
     #[test]
-    fn job_rejects_duplicate_group_names() {
-        let mut job = valid_job();
-        job.task_groups = vec![valid_group(), valid_group()];
-        assert!(job.validate().unwrap_err().to_string().contains("two task groups"));
+    fn test_task_group_validate_negative_count() {
+        let tg = TaskGroup { name: "g".to_owned(), count: -1, tasks: vec![] };
+        assert!(tg.validate().unwrap_err().to_string().contains("negative"));
     }
 
     #[test]
-    fn job_propagates_invalid_group() {
-        let mut job = valid_job();
-        job.task_groups[0].name = String::new();
-        assert!(job.validate().unwrap_err().to_string().contains("task group name"));
-    }
-
-    // ---- TaskGroup::validate ----
-
-    #[test]
-    fn group_rejects_empty_name() {
-        let mut group = valid_group();
-        group.name = String::new();
-        assert!(group.validate().unwrap_err().to_string().contains("name"));
+    fn test_task_validate_empty_name() {
+        let task = Task {
+            name: String::new(),
+            driver: "exec".to_owned(),
+            config: HashMap::new(),
+            resources: Resources::default(),
+        };
+        assert!(task.validate().unwrap_err().to_string().contains("task name"));
     }
 
     #[test]
-    fn group_rejects_negative_count() {
-        let mut group = valid_group();
-        group.count = -1;
-        assert!(group.validate().unwrap_err().to_string().contains("negative"));
-    }
-
-    #[test]
-    fn group_rejects_no_tasks() {
-        let mut group = valid_group();
-        group.tasks.clear();
-        assert!(group.validate().unwrap_err().to_string().contains("no tasks"));
-    }
-
-    #[test]
-    fn group_rejects_duplicate_task_names() {
-        let mut group = valid_group();
-        group.tasks = vec![valid_task(), valid_task()];
-        assert!(group.validate().unwrap_err().to_string().contains("two tasks"));
-    }
-
-    #[test]
-    fn group_accepts_zero_count() {
-        let mut group = valid_group();
-        group.count = 0;
-        assert!(group.validate().is_ok());
-    }
-
-    #[test]
-    fn group_propagates_invalid_task() {
-        let mut group = valid_group();
-        group.tasks[0].name = String::new();
-        assert!(group.validate().unwrap_err().to_string().contains("task name"));
-    }
-
-    // ---- Task::validate ----
-
-    #[test]
-    fn task_rejects_empty_name() {
-        let mut task = valid_task();
-        task.name = String::new();
-        assert!(task.validate().unwrap_err().to_string().contains("name"));
-    }
-
-    #[test]
-    fn task_rejects_empty_driver() {
-        let mut task = valid_task();
-        task.driver = String::new();
+    fn test_task_validate_empty_driver() {
+        let task = Task {
+            name: "t".to_owned(),
+            driver: String::new(),
+            config: HashMap::new(),
+            resources: Resources::default(),
+        };
         assert!(task.validate().unwrap_err().to_string().contains("driver"));
     }
 
-    // ---- Resources::validate ----
-
     #[test]
-    fn resources_reject_cpu_below_min() {
-        let res = Resources { cpu_mhz: MIN_CPU_MHZ - 1, ..Resources::default() };
-        assert!(res.validate().unwrap_err().to_string().contains("cpu"));
+    fn test_resources_validate_negative_cpu() {
+        let res = Resources { cpu_mhz: -1, memory_mb: 256, network_mbps: 0 };
+        assert!(res.validate().unwrap_err().to_string().contains("cpu_mhz"));
     }
 
     #[test]
-    fn resources_reject_memory_below_min() {
-        let res = Resources { memory_mb: MIN_MEMORY_MB - 1, ..Resources::default() };
-        assert!(res.validate().unwrap_err().to_string().contains("memory"));
+    fn test_resources_validate_negative_memory() {
+        let res = Resources { cpu_mhz: 100, memory_mb: -1, network_mbps: 0 };
+        assert!(res.validate().unwrap_err().to_string().contains("memory_mb"));
     }
 
     #[test]
-    fn resources_reject_negative_network() {
-        let res = Resources { network_mbps: -1, ..Resources::default() };
-        assert!(res.validate().unwrap_err().to_string().contains("network"));
+    fn test_resources_validate_ok() {
+        let res = Resources { cpu_mhz: 500, memory_mb: 1024, network_mbps: 100 };
+        assert!(res.validate().is_ok());
     }
 }

@@ -40,4 +40,3 @@ exit-code
 
 # Tooling
 tools/missing/missing
-Cargo.lock

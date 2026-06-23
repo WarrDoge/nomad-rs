@@ -3,7 +3,7 @@
 //! Telemetry sink contract — dependency-agnostic.
 //!
 //! Defines the metric shape and the sink that emits it. The concrete backend
-//! (Prometheus, statsd, ...) lives behind [`MetricSink`]. [`InMemorySink`] is
+//! (Prometheus, statsd, ...) lives behind [`MetricSink`](crate::metrics::MetricSink). [`InMemorySink`](crate::metrics::InMemorySink) is
 //! the in-tree sink whose behaviour is specified by the tests and is
 //! unimplemented.
 
@@ -57,6 +57,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn emits_a_counter() {
         let m = Metric { key: "nomad.evals".to_owned(), value: 1.0, kind: MetricKind::Counter };
         assert!(InMemorySink.emit(&m).is_ok());

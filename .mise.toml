@@ -1,12 +1,19 @@
 [tools]
-rust = "1.96.0"
-# Pin nushell as the default shell — sourced from GitHub releases via aqua
+# Rust toolchain is owned by rust-toolchain.toml + rustup (canonical pin,
+# carries clippy/rustfmt components). Not managed by mise to avoid a dual pin.
+# Pin nushell as the task shell — sourced from GitHub releases via aqua
 "aqua:nushell/nushell" = "latest"
 
 # cargo-deny installed manually (not through mise)
 
+[settings]
+# Use nushell as the default shell for tasks (inline + shebang-less file tasks)
+unix_default_inline_shell_args = "nu -c"
+unix_default_file_shell_args = "nu"
+
 [env]
 RUSTFLAGS = "-D warnings"
+RUSTDOCFLAGS = "-D warnings"
 CARGO_REGISTRIES_CRATES_IO_PROTOCOL = "sparse"
 
 [tasks.check-all]

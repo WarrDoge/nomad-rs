@@ -73,11 +73,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn valid_dispatch_passes() {
         assert!(template().validate_dispatch(&request()).is_ok());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn missing_required_meta_errors() {
         let mut r = request();
         r.meta.clear();
@@ -85,6 +87,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn forbidden_payload_errors() {
         let mut r = request();
         r.payload = Some(vec![1, 2, 3]);

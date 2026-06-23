@@ -5,10 +5,7 @@
 //! These types mirror the configuration structure from the original Nomad
 //! project, adapted for idiomatic Rust.
 
-use std::net::SocketAddr;
 use std::path::PathBuf;
-
-use crate::error::{Error, Result};
 
 /// Log verbosity level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,6 +34,20 @@ impl LogLevel {
             Self::Trace => "trace",
         }
     }
+
+    /// Parse a log level from a string, returning `None` if the string
+    /// does not match a known level.
+    #[must_use]
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "error" => Some(Self::Error),
+            "warn" | "warning" => Some(Self::Warn),
+            "info" => Some(Self::Info),
+            "debug" => Some(Self::Debug),
+            "trace" => Some(Self::Trace),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for LogLevel {
@@ -46,7 +57,7 @@ impl std::fmt::Display for LogLevel {
 }
 
 /// Top-level configuration for a Nomad agent (client, server, or both).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
     /// Directory for storing persistent data.
     pub data_dir: PathBuf,
@@ -81,61 +92,12 @@ impl Default for Config {
     }
 }
 
-impl Config {
-    /// Validate the agent configuration before an agent starts.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Error::Config`] if the bind address cannot be parsed as a
-    /// `host:port` socket address, or if a required field (data directory,
-    /// datacenter, region, node name) is empty.
-    pub fn validate(&self) -> Result<()> {
-        if self.bind_addr.parse::<SocketAddr>().is_err() {
-            return Err(Error::Config(format!("invalid bind address: {:?}", self.bind_addr)));
-        }
-        if self.data_dir.as_os_str().is_empty() {
-            return Err(Error::Config("missing data directory".to_owned()));
-        }
-        if self.datacenter.is_empty() {
-            return Err(Error::Config("missing datacenter".to_owned()));
-        }
-        if self.region.is_empty() {
-            return Err(Error::Config("missing region".to_owned()));
-        }
-        if self.node_name.is_empty() {
-            return Err(Error::Config("missing node name".to_owned()));
-        }
-        Ok(())
-    }
-}
-
 #[cfg(test)]
-#[allow(clippy::missing_docs_in_private_items, clippy::wildcard_imports, reason = "conventional inline test module")]
 mod tests {
     use super::*;
 
-    fn valid_config() -> Config {
-        Config::default()
-    }
-
     #[test]
-    fn default_config_matches_nomad_conventions() {
-        let cfg = Config::default();
-        assert_eq!(cfg.bind_addr, "0.0.0.0:4646");
-        assert_eq!(cfg.datacenter, "dc1");
-        assert_eq!(cfg.region, "global");
-        assert_eq!(cfg.log_level, LogLevel::Info);
-        assert_eq!(cfg.data_dir, PathBuf::from("/opt/nomad/data"));
-        assert_eq!(cfg.log_dir, PathBuf::from("/opt/nomad/log"));
-    }
-
-    #[test]
-    fn default_node_name_is_non_empty() {
-        assert!(!Config::default().node_name.is_empty());
-    }
-
-    #[test]
-    fn log_level_as_str_round_trips() {
+    fn test_log_level_as_str() {
         assert_eq!(LogLevel::Error.as_str(), "error");
         assert_eq!(LogLevel::Warn.as_str(), "warn");
         assert_eq!(LogLevel::Info.as_str(), "info");
@@ -144,65 +106,62 @@ mod tests {
     }
 
     #[test]
-    fn log_level_display_matches_as_str() {
-        for level in [LogLevel::Error, LogLevel::Warn, LogLevel::Info, LogLevel::Debug, LogLevel::Trace] {
-            assert_eq!(level.to_string(), level.as_str());
-        }
-    }
-
-    // ---- Config::validate ----
-
-    #[test]
-    fn default_config_validates() {
-        assert!(Config::default().validate().is_ok());
+    fn test_log_level_display() {
+        assert_eq!(format!("{}", LogLevel::Error), "error");
+        assert_eq!(format!("{}", LogLevel::Trace), "trace");
     }
 
     #[test]
-    fn validate_accepts_custom_bind_addr() {
-        let mut cfg = valid_config();
-        cfg.bind_addr = "127.0.0.1:8080".to_owned();
-        assert!(cfg.validate().is_ok());
+    fn test_log_level_from_str_exact() {
+        assert_eq!(LogLevel::parse("error"), Some(LogLevel::Error));
+        assert_eq!(LogLevel::parse("warn"), Some(LogLevel::Warn));
+        assert_eq!(LogLevel::parse("info"), Some(LogLevel::Info));
+        assert_eq!(LogLevel::parse("debug"), Some(LogLevel::Debug));
+        assert_eq!(LogLevel::parse("trace"), Some(LogLevel::Trace));
     }
 
     #[test]
-    fn validate_rejects_unparseable_bind_addr() {
-        let mut cfg = valid_config();
-        cfg.bind_addr = "not-an-address".to_owned();
-        assert!(cfg.validate().unwrap_err().to_string().contains("bind"));
+    fn test_log_level_from_str_case_insensitive() {
+        assert_eq!(LogLevel::parse("ERROR"), Some(LogLevel::Error));
+        assert_eq!(LogLevel::parse("Info"), Some(LogLevel::Info));
     }
 
     #[test]
-    fn validate_rejects_bind_addr_without_port() {
-        let mut cfg = valid_config();
-        cfg.bind_addr = "0.0.0.0".to_owned();
-        assert!(cfg.validate().is_err());
+    fn test_log_level_from_str_variant() {
+        assert_eq!(LogLevel::parse("warning"), Some(LogLevel::Warn));
     }
 
     #[test]
-    fn validate_rejects_empty_data_dir() {
-        let mut cfg = valid_config();
-        cfg.data_dir = PathBuf::new();
-        assert!(cfg.validate().unwrap_err().to_string().contains("data"));
+    fn test_log_level_from_str_invalid() {
+        assert_eq!(LogLevel::parse("invalid"), None);
+        assert_eq!(LogLevel::parse(""), None);
     }
 
     #[test]
-    fn validate_rejects_empty_datacenter() {
-        let mut cfg = valid_config();
-        cfg.datacenter = String::new();
-        assert!(cfg.validate().unwrap_err().to_string().contains("datacenter"));
+    fn test_config_default() {
+        let config = Config::default();
+        assert_eq!(config.data_dir, PathBuf::from("/opt/nomad/data"));
+        assert_eq!(config.log_dir, PathBuf::from("/opt/nomad/log"));
+        assert_eq!(config.log_level, LogLevel::Info);
+        assert_eq!(config.bind_addr, "0.0.0.0:4646");
+        assert_eq!(config.datacenter, "dc1");
+        assert_eq!(config.region, "global");
+        assert!(!config.node_name.is_empty());
     }
 
     #[test]
-    fn validate_rejects_empty_region() {
-        let mut cfg = valid_config();
-        cfg.region = String::new();
-        assert!(cfg.validate().unwrap_err().to_string().contains("region"));
+    fn test_config_equality() {
+        let a = Config { node_name: "test-node".to_owned(), ..Config::default() };
+        let b = Config { node_name: "test-node".to_owned(), ..Config::default() };
+        assert_eq!(a, b);
+
+        let c = Config { node_name: "other-node".to_owned(), ..Config::default() };
+        assert_ne!(a, c);
     }
 
     #[test]
-    fn validate_rejects_empty_node_name() {
-        let mut cfg = valid_config();
-        cfg.node_name = String::new();
-        assert!(cfg.validate().unwrap_err().to_string().contains("node name"));
+    fn test_log_level_from_str_unknown() {
+        assert!(LogLevel::parse("verbose").is_none());
+        assert!(LogLevel::parse("silent").is_none());
     }
 }

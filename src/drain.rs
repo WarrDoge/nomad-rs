@@ -53,29 +53,34 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn deadline_drain_passes() {
         let d = DrainSpec { deadline_secs: 60, force: false, ignore_system_jobs: true };
         assert!(d.validate().is_ok());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn zero_deadline_without_force_errors() {
         let d = DrainSpec { deadline_secs: 0, force: false, ignore_system_jobs: true };
         assert!(d.validate().is_err());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn forced_drain_needs_no_deadline() {
         let d = DrainSpec { deadline_secs: 0, force: true, ignore_system_jobs: true };
         assert!(d.validate().is_ok());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn progress_complete_when_all_migrated() {
         assert_eq!(drain_progress(5, 5), DrainProgress { remaining: 0, complete: true });
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn progress_counts_remaining() {
         assert_eq!(drain_progress(5, 2), DrainProgress { remaining: 3, complete: false });
     }

@@ -1,0 +1,35 @@
+name: ci
+on:
+  push:
+    branches: [main, "feat/**", "fix/**"]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  RUSTDOCFLAGS: -D warnings
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Rust channel + clippy/rustfmt components from rust-toolchain.toml; includes cargo caching.
+      - name: Install Rust toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      # mise provides nushell — the shell the task scripts run under — and the task runner.
+      - name: Install mise + tools
+        uses: jdx/mise-action@v2
+
+      # Runs fmt, clippy, check, test, doc via the shared mise task (same as local dev).
+      - name: mise run check-all
+        run: mise run check-all
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2

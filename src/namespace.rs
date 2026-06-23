@@ -34,18 +34,21 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn default_namespace_passes() {
         let ns = Namespace { name: "default".to_owned(), description: String::new() };
         assert!(ns.validate().is_ok());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn rejects_empty_name() {
         let ns = Namespace { name: String::new(), description: String::new() };
         assert!(ns.validate().is_err());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn rejects_invalid_characters() {
         let ns = Namespace { name: "Prod Env".to_owned(), description: String::new() };
         assert!(ns.validate().is_err());

@@ -1,4 +1,3 @@
-# Strict formatting (stable-toolchain compatible).
 max_width = 120
 tab_spaces = 4
 edition = "2024"

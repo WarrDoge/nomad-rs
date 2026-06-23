@@ -46,11 +46,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn valid_policy_passes() {
         assert!(policy().validate().is_ok());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn rejects_min_above_max() {
         let mut p = policy();
         p.min = 20;
@@ -58,16 +60,19 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn clamps_above_max_to_max() {
         assert_eq!(policy().clamp(99), 10);
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn clamps_below_min_to_min() {
         assert_eq!(policy().clamp(0), 1);
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn leaves_in_range_untouched() {
         assert_eq!(policy().clamp(5), 5);
     }

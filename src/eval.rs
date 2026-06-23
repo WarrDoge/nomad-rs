@@ -32,7 +32,14 @@ impl EvalTrigger {
     /// `"job-register"`.
     #[must_use]
     pub fn as_str(&self) -> &'static str {
-        todo!("map each trigger to its hyphenated wire string")
+        match self {
+            Self::JobRegister => "job-register",
+            Self::JobDeregister => "job-deregister",
+            Self::NodeUpdate => "node-update",
+            Self::NodeDrain => "node-drain",
+            Self::AllocFailure => "alloc-failure",
+            Self::MaxPlanAttempts => "max-plan-attempts",
+        }
     }
 }
 
@@ -55,14 +62,20 @@ impl EvalStatus {
     /// Lowercase wire string, e.g. [`EvalStatus::Pending`] is `"pending"`.
     #[must_use]
     pub fn as_str(&self) -> &'static str {
-        todo!("map Blocked/Pending/Complete/Failed/Canceled to wire strings")
+        match self {
+            Self::Blocked => "blocked",
+            Self::Pending => "pending",
+            Self::Complete => "complete",
+            Self::Failed => "failed",
+            Self::Canceled => "canceled",
+        }
     }
 
     /// Whether this is a terminal status: [`EvalStatus::Complete`],
     /// [`EvalStatus::Failed`], or [`EvalStatus::Canceled`].
     #[must_use]
     pub fn is_terminal(&self) -> bool {
-        todo!("true for Complete/Failed/Canceled, false for Blocked/Pending")
+        matches!(self, Self::Complete | Self::Failed | Self::Canceled)
     }
 }
 
@@ -86,17 +99,31 @@ impl Evaluation {
     ///
     /// # Errors
     ///
-    /// Returns [`crate::error::Error::Config`] if `id` or `job_id` is empty, or
-    /// if `priority` is outside the job priority range.
+    /// Returns [`crate::error::Error::Validation`] if `id` or `job_id` is empty,
+    /// or if `priority` is outside the job priority range.
     pub fn validate(&self) -> Result<()> {
-        todo!("require non-empty id/job_id and priority within JOB_MIN..=JOB_MAX")
+        if self.id.is_empty() {
+            return Err(crate::error::Error::Validation("eval id cannot be empty".to_owned()));
+        }
+        if self.job_id.is_empty() {
+            return Err(crate::error::Error::Validation("eval job_id cannot be empty".to_owned()));
+        }
+        if !(crate::jobspec::JOB_MIN_PRIORITY..=crate::jobspec::JOB_MAX_PRIORITY).contains(&self.priority) {
+            return Err(crate::error::Error::Validation(format!(
+                "priority {} out of range ({}-{})",
+                self.priority,
+                crate::jobspec::JOB_MIN_PRIORITY,
+                crate::jobspec::JOB_MAX_PRIORITY,
+            )));
+        }
+        Ok(())
     }
 
     /// Whether the evaluation is ready to be dequeued and processed: status is
     /// [`EvalStatus::Pending`].
     #[must_use]
     pub fn is_schedulable(&self) -> bool {
-        todo!("true only when status is Pending")
+        self.status == EvalStatus::Pending
     }
 }
 

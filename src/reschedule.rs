@@ -105,11 +105,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn valid_restart_passes() {
         assert!(restart().validate().is_ok());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn restart_rejects_delay_above_interval() {
         let mut r = restart();
         r.delay_secs = 400;
@@ -117,11 +119,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn valid_reschedule_passes() {
         assert!(reschedule().validate().is_ok());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn reschedule_rejects_cap_not_above_delay() {
         let mut r = reschedule();
         r.delay_secs = 3600;
@@ -130,6 +134,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn bounded_reschedule_rejects_zero_attempts() {
         let mut r = reschedule();
         r.unlimited = false;

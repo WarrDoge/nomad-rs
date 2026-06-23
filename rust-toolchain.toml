@@ -1,0 +1,5 @@
+# Canonical toolchain pin. Local cargo/rustup auto-respect this file; CI reads it
+# via actions-rust-lang/setup-rust-toolchain. Keep .mise.toml's rust in sync.
+[toolchain]
+channel = "1.96.0"
+components = ["clippy", "rustfmt"]

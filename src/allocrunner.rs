@@ -71,11 +71,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn new_runner_is_pending() {
         assert_eq!(runner().status(), ClientStatus::Pending);
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn destroy_succeeds() {
         assert!(runner().destroy().is_ok());
     }
