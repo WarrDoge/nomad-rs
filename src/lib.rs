@@ -122,5 +122,8 @@ pub mod agent;
 /// Error types used across the project.
 pub mod error;
 
+/// Logging subsystem initialisation.
+pub mod logging;
+
 #[doc(hidden)]
 pub mod util;

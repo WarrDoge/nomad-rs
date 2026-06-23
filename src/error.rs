@@ -19,6 +19,10 @@ pub enum Error {
     #[error("serialisation error: {0}")]
     Serialize(#[from] serde_json::Error),
 
+    /// A TOML parse error occurred.
+    #[error("toml parse error: {0}")]
+    TomlParse(#[from] toml::de::Error),
+
     /// A configuration error occurred.
     #[error("config error: {0}")]
     Config(String),
