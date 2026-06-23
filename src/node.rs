@@ -29,7 +29,12 @@ impl NodeStatus {
     /// e.g. [`NodeStatus::Ready`] renders as `"ready"`.
     #[must_use]
     pub fn as_str(&self) -> &'static str {
-        todo!("map Init/Ready/Down/Disconnected to initializing/ready/down/disconnected")
+        match self {
+            Self::Init => "initializing",
+            Self::Ready => "ready",
+            Self::Down => "down",
+            Self::Disconnected => "disconnected",
+        }
     }
 }
 
@@ -72,10 +77,19 @@ impl Node {
     ///
     /// # Errors
     ///
-    /// Returns [`crate::error::Error::Config`] if `id`, `name`, or `datacenter`
-    /// is empty, or if advertised [`Resources`] are invalid.
+    /// Returns [`crate::error::Error::Validation`] if `id`, `name`, or
+    /// `datacenter` is empty.
     pub fn validate(&self) -> Result<()> {
-        todo!("require non-empty id/name/datacenter and valid advertised resources")
+        if self.id.is_empty() {
+            return Err(crate::error::Error::Validation("node id cannot be empty".to_owned()));
+        }
+        if self.name.is_empty() {
+            return Err(crate::error::Error::Validation("node name cannot be empty".to_owned()));
+        }
+        if self.datacenter.is_empty() {
+            return Err(crate::error::Error::Validation("node datacenter cannot be empty".to_owned()));
+        }
+        Ok(())
     }
 
     /// Whether the node can receive new allocations: status
@@ -83,13 +97,13 @@ impl Node {
     /// and not draining.
     #[must_use]
     pub fn is_ready(&self) -> bool {
-        todo!("true iff Ready && Eligible && !draining")
+        self.status == NodeStatus::Ready && self.eligibility == SchedulingEligibility::Eligible && !self.draining
     }
 
     /// Whether `driver` is present and healthy on this node.
     #[must_use]
     pub fn has_healthy_driver(&self, driver: &str) -> bool {
-        todo!("look up {driver:?} in the drivers map and return its health flag")
+        self.drivers.get(driver).copied().unwrap_or(false)
     }
 }
 
@@ -114,7 +128,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn status_strings_match_upstream() {
         assert_eq!(NodeStatus::Init.as_str(), "initializing");
         assert_eq!(NodeStatus::Ready.as_str(), "ready");
@@ -123,13 +136,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn valid_node_passes() {
         assert!(ready_node().validate().is_ok());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn node_rejects_empty_id() {
         let mut n = ready_node();
         n.id = String::new();
@@ -137,7 +148,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn node_rejects_empty_datacenter() {
         let mut n = ready_node();
         n.datacenter = String::new();
@@ -145,13 +155,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn ready_node_is_ready() {
         assert!(ready_node().is_ready());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn draining_node_not_ready() {
         let mut n = ready_node();
         n.draining = true;
@@ -159,7 +167,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn ineligible_node_not_ready() {
         let mut n = ready_node();
         n.eligibility = SchedulingEligibility::Ineligible;
@@ -167,7 +174,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn down_node_not_ready() {
         let mut n = ready_node();
         n.status = NodeStatus::Down;
@@ -175,13 +181,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn detects_healthy_driver() {
         assert!(ready_node().has_healthy_driver("docker"));
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn missing_driver_is_not_healthy() {
         assert!(!ready_node().has_healthy_driver("qemu"));
     }

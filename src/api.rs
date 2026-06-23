@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! HTTP API contract — dependency-agnostic.
+//! HTTP API — dependency-agnostic.
 //!
-//! Defines the request/response shape and the handler that routes API calls.
-//! The concrete web framework (axum/hyper/...) lives behind [`ApiHandler`](crate::api::ApiHandler).
-//! [`HttpApi`](crate::api::HttpApi) is the in-tree handler whose behaviour is specified by the tests
-//! and is unimplemented.
+//! Defines the request/response shape and the in-tree [`HttpApi`](crate::api::HttpApi)
+//! that routes API calls. A real web framework (axum/hyper/...) replaces its
+//! body later. Behaviour is specified by the tests and is unimplemented.
 
 use crate::error::Result;
 
@@ -42,23 +41,18 @@ pub struct ApiResponse {
     pub body: String,
 }
 
-/// Routes and handles API requests.
-pub trait ApiHandler {
+/// The in-tree HTTP API.
+#[derive(Debug)]
+pub struct HttpApi;
+
+impl HttpApi {
     /// Handle one request.
     ///
     /// # Errors
     ///
     /// Returns an error if routing fails or the underlying operation errors.
-    fn handle(&self, request: ApiRequest) -> Result<ApiResponse>;
-}
-
-/// The in-tree HTTP API.
-#[derive(Debug)]
-pub struct HttpApi;
-
-impl ApiHandler for HttpApi {
     #[allow(clippy::needless_pass_by_value, reason = "request is routed/consumed once implemented")]
-    fn handle(&self, request: ApiRequest) -> Result<ApiResponse> {
+    pub fn handle(&self, request: ApiRequest) -> Result<ApiResponse> {
         let _ = request;
         todo!("route the request to the matching endpoint and serialise the result")
     }

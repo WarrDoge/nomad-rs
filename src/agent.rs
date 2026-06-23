@@ -19,8 +19,6 @@ pub enum AgentStatus {
     Running,
     /// Stopped.
     Stopped,
-    /// Hit a terminal error.
-    Failed,
 }
 
 /// A Nomad agent that runs a client, a server, or both.

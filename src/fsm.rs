@@ -57,10 +57,14 @@ impl Fsm {
     ///
     /// Returns an error if the underlying [`StateStore`] operation rejects the
     /// command (e.g. validation failure, deleting a missing job).
-    #[allow(clippy::needless_pass_by_value, reason = "command is dispatched into a state op once implemented")]
     pub fn apply(&mut self, command: Command) -> Result<()> {
-        let _ = command;
-        todo!("match the command and dispatch to the matching StateStore operation")
+        match command {
+            Command::UpsertJob(job) => self.state.upsert_job(job),
+            Command::DeregisterJob(name) => self.state.delete_job(&name),
+            Command::UpsertNode(node) => self.state.upsert_node(node),
+            Command::UpsertAlloc(alloc) => self.state.upsert_alloc(alloc),
+            Command::UpsertEval(eval) => self.state.upsert_eval(eval),
+        }
     }
 }
 
@@ -74,13 +78,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn new_fsm_state_is_empty() {
         assert!(Fsm::new().state().list_jobs().is_empty());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn apply_upsert_job_makes_it_readable() {
         let mut fsm = Fsm::new();
         fsm.apply(Command::UpsertJob(job("redis"))).unwrap();
@@ -88,7 +90,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn apply_deregister_removes_job() {
         let mut fsm = Fsm::new();
         fsm.apply(Command::UpsertJob(job("redis"))).unwrap();

@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Telemetry sink contract — dependency-agnostic.
+//! Telemetry sink.
 //!
-//! Defines the metric shape and the sink that emits it. The concrete backend
-//! (Prometheus, statsd, ...) lives behind [`MetricSink`](crate::metrics::MetricSink). [`InMemorySink`](crate::metrics::InMemorySink) is
-//! the in-tree sink whose behaviour is specified by the tests and is
-//! unimplemented.
+//! Defines the metric shape and the in-tree [`InMemorySink`](crate::metrics::InMemorySink)
+//! that records samples. A real backend (Prometheus, statsd, ...) replaces its
+//! body later. Behaviour is specified by the tests and is unimplemented.
 
 use crate::error::Result;
 
@@ -31,22 +30,17 @@ pub struct Metric {
     pub kind: MetricKind,
 }
 
-/// Receives metric samples.
-pub trait MetricSink {
+/// A sink that retains samples in memory (for tests and the `/metrics` view).
+#[derive(Debug, Default)]
+pub struct InMemorySink;
+
+impl InMemorySink {
     /// Emit one metric sample.
     ///
     /// # Errors
     ///
     /// Returns an error if the sample cannot be recorded/forwarded.
-    fn emit(&self, metric: &Metric) -> Result<()>;
-}
-
-/// A sink that retains samples in memory (for tests and the `/metrics` view).
-#[derive(Debug, Default)]
-pub struct InMemorySink;
-
-impl MetricSink for InMemorySink {
-    fn emit(&self, metric: &Metric) -> Result<()> {
+    pub fn emit(&self, metric: &Metric) -> Result<()> {
         todo!("record sample {:?} in the in-memory ring", metric.key)
     }
 }

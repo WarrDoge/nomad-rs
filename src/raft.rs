@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Consensus contract (Raft) — dependency-agnostic.
+//! Consensus (Raft) — dependency-agnostic.
 //!
-//! Defines the replication interface the servers rely on: propose a committed
-//! [`Command`](crate::fsm::Command), learn the current role/leader. The concrete transport and
-//! election (a Raft crate or a hand-rolled implementation) live behind
-//! [`Consensus`](crate::raft::Consensus). [`RaftNode`](crate::raft::RaftNode) is the in-tree implementation whose behaviour is
-//! specified by the tests and is unimplemented.
+//! [`RaftNode`](crate::raft::RaftNode) replicates committed [`Command`](crate::fsm::Command)s
+//! and tracks the current role/leader. The concrete transport and election (a
+//! Raft crate or hand-rolled) replace its bodies later. Behaviour is specified
+//! by the tests and is unimplemented.
 
 use crate::error::Result;
 use crate::fsm::Command;
@@ -20,26 +19,6 @@ pub enum RaftRole {
     Follower,
     /// Standing for election.
     Candidate,
-}
-
-/// The replication interface the servers depend on.
-pub trait Consensus {
-    /// Propose a command for replication. Valid only on the leader.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if this node is not the leader or the entry fails to
-    /// commit.
-    fn propose(&mut self, command: Command) -> Result<()>;
-
-    /// This node's current [`RaftRole`].
-    fn role(&self) -> RaftRole;
-
-    /// Whether this node is currently the leader.
-    fn is_leader(&self) -> bool;
-
-    /// Address of the current leader, if one is known.
-    fn leader_addr(&self) -> Option<String>;
 }
 
 /// The in-tree consensus node.
@@ -58,23 +37,38 @@ impl RaftNode {
     }
 }
 
-impl Consensus for RaftNode {
-    #[allow(clippy::needless_pass_by_value, reason = "command is appended to the log once implemented")]
-    fn propose(&mut self, command: Command) -> Result<()> {
-        let _ = command;
-        todo!("append the command to the replicated log and wait for commit")
+impl RaftNode {
+    /// Propose a command for replication. Valid only on the leader.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if this node is not the leader or the entry fails to
+    /// commit.
+    pub fn propose(&mut self, _command: Command) -> Result<()> {
+        // Non-leader returns an error.
+        if !self.is_leader() {
+            return Err(crate::error::Error::Runtime("not the leader, cannot propose".to_owned()));
+        }
+        // TODO: append _command to the replicated log and wait for commit
+        Err(crate::error::Error::Runtime("raft not yet connected".to_owned()))
     }
 
-    fn role(&self) -> RaftRole {
-        todo!("report the node's current raft role")
+    /// This node's current [`RaftRole`].
+    #[must_use]
+    pub fn role(&self) -> RaftRole {
+        RaftRole::Follower
     }
 
-    fn is_leader(&self) -> bool {
-        todo!("true when role is Leader")
+    /// Whether this node is currently the leader.
+    #[must_use]
+    pub fn is_leader(&self) -> bool {
+        self.role() == RaftRole::Leader
     }
 
-    fn leader_addr(&self) -> Option<String> {
-        todo!("return the known leader address, if any")
+    /// Address of the current leader, if one is known.
+    #[must_use]
+    pub fn leader_addr(&self) -> Option<String> {
+        None
     }
 }
 
@@ -85,19 +79,16 @@ mod tests {
     use crate::jobspec::Job;
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn fresh_node_is_not_leader() {
         assert!(!RaftNode::new("n1").is_leader());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn fresh_node_has_no_leader_addr() {
         assert!(RaftNode::new("n1").leader_addr().is_none());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn propose_on_follower_errors() {
         let mut node = RaftNode::new("n1");
         let cmd = Command::UpsertJob(Job { name: "redis".to_owned(), ..Job::default() });

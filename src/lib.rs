@@ -124,6 +124,3 @@ pub mod error;
 
 /// Logging subsystem initialisation.
 pub mod logging;
-
-#[doc(hidden)]
-pub mod util;

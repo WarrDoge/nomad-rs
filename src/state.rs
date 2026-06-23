@@ -41,95 +41,98 @@ impl StateStore {
     ///
     /// # Errors
     ///
-    /// Returns [`crate::error::Error::Config`] if the job fails validation.
-    #[allow(clippy::needless_pass_by_value, reason = "the value is moved into storage once implemented")]
+    /// Returns [`crate::error::Error::Validation`] if the job fails validation.
     pub fn upsert_job(&mut self, job: Job) -> Result<()> {
-        let _ = job;
-        todo!("validate then insert/replace the job keyed by name")
+        job.validate()?;
+        self.jobs.insert(job.name.clone(), job);
+        Ok(())
     }
 
     /// Fetch a clone of the job named `name`, if present.
     #[must_use]
     pub fn get_job(&self, name: &str) -> Option<Job> {
-        todo!("return a clone of the job named {name:?}")
+        self.jobs.get(name).cloned()
     }
 
     /// Remove the job named `name`.
     ///
     /// # Errors
     ///
-    /// Returns [`crate::error::Error::Config`] if no such job exists.
+    /// Returns [`crate::error::Error::Validation`] if no such job exists.
     pub fn delete_job(&mut self, name: &str) -> Result<()> {
-        todo!("remove the job named {name:?}, erroring if absent")
+        if self.jobs.remove(name).is_none() {
+            return Err(crate::error::Error::Validation(format!("job '{name}' not found")));
+        }
+        Ok(())
     }
 
     /// All jobs currently stored.
     #[must_use]
     pub fn list_jobs(&self) -> Vec<Job> {
-        todo!("clone and return every stored job")
+        self.jobs.values().cloned().collect()
     }
 
     /// Insert or replace a node, keyed by its id.
     ///
     /// # Errors
     ///
-    /// Returns [`crate::error::Error::Config`] if the node fails validation.
-    #[allow(clippy::needless_pass_by_value, reason = "the value is moved into storage once implemented")]
+    /// Returns [`crate::error::Error::Validation`] if the node fails validation.
     pub fn upsert_node(&mut self, node: Node) -> Result<()> {
-        let _ = node;
-        todo!("validate then insert/replace the node keyed by id")
+        node.validate()?;
+        self.nodes.insert(node.id.clone(), node);
+        Ok(())
     }
 
     /// Fetch a clone of the node with id `id`, if present.
     #[must_use]
     pub fn get_node(&self, id: &str) -> Option<Node> {
-        todo!("return a clone of the node with id {id:?}")
+        self.nodes.get(id).cloned()
     }
 
     /// All nodes currently stored.
     #[must_use]
     pub fn list_nodes(&self) -> Vec<Node> {
-        todo!("clone and return every stored node")
+        self.nodes.values().cloned().collect()
     }
 
     /// Insert or replace an allocation, keyed by its id.
     ///
     /// # Errors
     ///
-    /// Returns [`crate::error::Error::Config`] if the allocation fails validation.
-    #[allow(clippy::needless_pass_by_value, reason = "the value is moved into storage once implemented")]
+    /// Returns [`crate::error::Error::Validation`] if the allocation fails validation.
     pub fn upsert_alloc(&mut self, alloc: Allocation) -> Result<()> {
-        let _ = alloc;
-        todo!("validate then insert/replace the allocation keyed by id")
+        alloc.validate()?;
+        self.allocs.insert(alloc.id.clone(), alloc);
+        Ok(())
     }
 
     /// All allocations placed on the node with id `node_id`.
     #[must_use]
     pub fn allocs_by_node(&self, node_id: &str) -> Vec<Allocation> {
-        todo!("clone and return allocations whose node_id == {node_id:?}")
+        self.allocs.values().filter(|a| a.node_id == node_id).cloned().collect()
     }
 
     /// All allocations belonging to the job named `job_id`.
     #[must_use]
     pub fn allocs_by_job(&self, job_id: &str) -> Vec<Allocation> {
-        todo!("clone and return allocations whose job_id == {job_id:?}")
+        self.allocs.values().filter(|a| a.job_id == job_id).cloned().collect()
     }
 
     /// Insert or replace an evaluation, keyed by its id.
     ///
     /// # Errors
     ///
-    /// Returns [`crate::error::Error::Config`] if the evaluation fails validation.
-    #[allow(clippy::needless_pass_by_value, reason = "the value is moved into storage once implemented")]
+    /// Returns [`crate::error::Error::Validation`] if the evaluation fails validation.
     pub fn upsert_eval(&mut self, eval: Evaluation) -> Result<()> {
-        let _ = eval;
-        todo!("validate then insert/replace the evaluation keyed by id")
+        eval.validate()?;
+        self.evals.insert(eval.id.clone(), eval);
+        Ok(())
     }
 
     /// Fetch a clone of the evaluation with id `id`, if present.
     #[must_use]
     pub fn get_eval(&self, id: &str) -> Option<Evaluation> {
-        todo!("return a clone of the evaluation with id {id:?}")
+        self.evals.get(id).cloned()
     }
 }
 
@@ -185,13 +188,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn new_store_has_no_jobs() {
         assert!(StateStore::new().list_jobs().is_empty());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn upsert_then_get_job() {
         let mut s = StateStore::new();
         s.upsert_job(job("redis")).unwrap();
@@ -199,13 +200,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn get_missing_job_is_none() {
         assert!(StateStore::new().get_job("nope").is_none());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn upsert_replaces_job() {
         let mut s = StateStore::new();
         s.upsert_job(job("redis")).unwrap();
@@ -214,7 +213,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn delete_job_removes_it() {
         let mut s = StateStore::new();
         s.upsert_job(job("redis")).unwrap();
@@ -223,14 +221,12 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn delete_missing_job_errors() {
         let mut s = StateStore::new();
         assert!(s.delete_job("nope").is_err());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn upsert_then_get_node() {
         let mut s = StateStore::new();
         s.upsert_node(node("n1")).unwrap();
@@ -238,7 +234,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn list_nodes_reflects_inserts() {
         let mut s = StateStore::new();
         s.upsert_node(node("n1")).unwrap();
@@ -247,7 +242,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn allocs_filtered_by_node() {
         let mut s = StateStore::new();
         s.upsert_alloc(alloc("a1", "n1", "redis")).unwrap();
@@ -256,7 +250,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn allocs_filtered_by_job() {
         let mut s = StateStore::new();
         s.upsert_alloc(alloc("a1", "n1", "redis")).unwrap();
@@ -265,7 +258,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn upsert_then_get_eval() {
         let mut s = StateStore::new();
         s.upsert_eval(eval("ev1")).unwrap();
