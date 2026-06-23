@@ -3,7 +3,7 @@
 //! CLI command parsing contract.
 //!
 //! Parses an argv slice into a command name and its arguments. The concrete
-//! arg-parsing crate lives behind [`parse`](crate::cli::parse). Behaviour is specified by the
+//! arg-parsing crate lives behind [`crate::cli::parse`]. Behaviour is specified by the
 //! tests and is unimplemented.
 
 use crate::error::Result;
@@ -24,7 +24,10 @@ pub struct ParsedCommand {
 /// Returns [`crate::error::Error::Config`] if `args` is empty or the command is
 /// unknown.
 pub fn parse(args: &[String]) -> Result<ParsedCommand> {
-    todo!("take the first token as the command name and the rest as args: {args:?}")
+    let Some(first) = args.first() else {
+        return Err(crate::error::Error::Config("empty argv: no command provided".to_owned()));
+    };
+    Ok(ParsedCommand { name: first.to_owned(), args: args[1..].to_vec() })
 }
 
 #[cfg(test)]
@@ -33,7 +36,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn parses_command_and_args() {
         let argv = vec!["job".to_owned(), "status".to_owned(), "redis".to_owned()];
         let parsed = parse(&argv).unwrap();
@@ -42,7 +44,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn empty_argv_errors() {
         assert!(parse(&[]).is_err());
     }
