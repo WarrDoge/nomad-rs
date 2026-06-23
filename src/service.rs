@@ -54,7 +54,16 @@ impl ServiceCheck {
     /// Returns [`crate::error::Error::Config`] if interval/timeout are zero,
     /// timeout >= interval, or an HTTP check is missing its path.
     pub fn validate(&self) -> Result<()> {
-        todo!("require interval>0, 0<timeout<interval, and a path for HTTP checks")
+        if self.interval_secs == 0 {
+            return Err(crate::error::Error::Config("check interval must be > 0".to_owned()));
+        }
+        if self.timeout_secs == 0 || self.timeout_secs >= self.interval_secs {
+            return Err(crate::error::Error::Config("check timeout must be > 0 and < interval".to_owned()));
+        }
+        if self.check_type == CheckType::Http && self.path.is_none() {
+            return Err(crate::error::Error::Config("HTTP check requires a path".to_owned()));
+        }
+        Ok(())
     }
 }
 
@@ -81,7 +90,13 @@ impl Service {
     /// Returns [`crate::error::Error::Config`] if the name is empty or any
     /// check is invalid.
     pub fn validate(&self) -> Result<()> {
-        todo!("require a non-empty name and validate every check")
+        if self.name.is_empty() {
+            return Err(crate::error::Error::Config("service name cannot be empty".to_owned()));
+        }
+        for check in &self.checks {
+            check.validate()?;
+        }
+        Ok(())
     }
 }
 
@@ -111,13 +126,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn valid_service_passes() {
         assert!(service().validate().is_ok());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn service_rejects_empty_name() {
         let mut s = service();
         s.name = String::new();
@@ -125,13 +138,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn http_check_passes() {
         assert!(http_check().validate().is_ok());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn http_check_requires_path() {
         let mut c = http_check();
         c.path = None;
@@ -139,7 +150,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn check_rejects_timeout_ge_interval() {
         let mut c = http_check();
         c.timeout_secs = 10;
@@ -148,7 +158,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn check_rejects_zero_interval() {
         let mut c = http_check();
         c.interval_secs = 0;

@@ -39,7 +39,13 @@ impl RestartPolicy {
     /// Returns [`crate::error::Error::Config`] if `attempts > 0` but
     /// `interval_secs` is zero, or `delay_secs` exceeds `interval_secs`.
     pub fn validate(&self) -> Result<()> {
-        todo!("require a non-zero interval when attempts>0 and delay<=interval")
+        if self.attempts > 0 && self.interval_secs == 0 {
+            return Err(crate::error::Error::Config("restart interval must be > 0 when attempts > 0".to_owned()));
+        }
+        if self.delay_secs > self.interval_secs {
+            return Err(crate::error::Error::Config("restart delay must not exceed interval".to_owned()));
+        }
+        Ok(())
     }
 }
 
@@ -80,7 +86,20 @@ impl ReschedulePolicy {
     /// has `max_delay_secs <= delay_secs`, or a bounded policy has zero
     /// `attempts`.
     pub fn validate(&self) -> Result<()> {
-        todo!("require max_delay>delay for growing functions and attempts>0 when bounded")
+        if !self.unlimited && self.attempts == 0 {
+            return Err(crate::error::Error::Config("bounded reschedule policy must have attempts > 0".to_owned()));
+        }
+        match self.delay_function {
+            DelayFunction::Exponential | DelayFunction::Fibonacci => {
+                if self.max_delay_secs <= self.delay_secs {
+                    return Err(crate::error::Error::Config(
+                        "max_delay_secs must exceed delay_secs for growing delay functions".to_owned(),
+                    ));
+                }
+            },
+            DelayFunction::Constant => {},
+        }
+        Ok(())
     }
 }
 
@@ -105,13 +124,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn valid_restart_passes() {
         assert!(restart().validate().is_ok());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn restart_rejects_delay_above_interval() {
         let mut r = restart();
         r.delay_secs = 400;
@@ -119,13 +136,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn valid_reschedule_passes() {
         assert!(reschedule().validate().is_ok());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn reschedule_rejects_cap_not_above_delay() {
         let mut r = reschedule();
         r.delay_secs = 3600;
@@ -134,7 +149,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn bounded_reschedule_rejects_zero_attempts() {
         let mut r = reschedule();
         r.unlimited = false;
