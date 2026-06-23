@@ -53,7 +53,24 @@ impl NetworkResource {
     /// labels collide, a reserved port lacks a static value, or a static value
     /// is zero.
     pub fn validate(&self) -> Result<()> {
-        todo!("require unique non-empty labels, static values on reserved ports")
+        let mut labels = std::collections::HashSet::new();
+        for port in self.reserved_ports.iter().chain(self.dynamic_ports.iter()) {
+            if port.label.is_empty() {
+                return Err(crate::error::Error::Config("port label cannot be empty".to_owned()));
+            }
+            if !labels.insert(&port.label) {
+                return Err(crate::error::Error::Config(format!("duplicate port label '{}'", port.label)));
+            }
+        }
+        for port in &self.reserved_ports {
+            if port.static_value.is_none() || port.static_value == Some(0) {
+                return Err(crate::error::Error::Config(format!(
+                    "reserved port '{}' requires a non-zero static value",
+                    port.label
+                )));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -71,13 +88,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn valid_network_passes() {
         assert!(net().validate().is_ok());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn rejects_empty_label() {
         let mut n = net();
         n.reserved_ports[0].label = String::new();
@@ -85,7 +100,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn rejects_duplicate_labels() {
         let mut n = net();
         n.dynamic_ports[0].label = "http".to_owned();
@@ -93,7 +107,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn rejects_reserved_without_static_value() {
         let mut n = net();
         n.reserved_ports[0].static_value = None;

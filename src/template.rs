@@ -44,7 +44,28 @@ impl Template {
     /// neither or both of `source`/`embedded` are set, or if `change_mode` is
     /// [`ChangeMode::Signal`] without a `change_signal`.
     pub fn validate(&self) -> Result<()> {
-        todo!("require a destination, exactly one source, and a signal for Signal mode")
+        if self.destination.is_empty() {
+            return Err(crate::error::Error::Config("template destination cannot be empty".to_owned()));
+        }
+        match (&self.source, &self.embedded) {
+            (None, None) => {
+                return Err(crate::error::Error::Config(
+                    "template requires either a source path or embedded content".to_owned(),
+                ));
+            },
+            (Some(_), Some(_)) => {
+                return Err(crate::error::Error::Config(
+                    "template cannot have both source and embedded content".to_owned(),
+                ));
+            },
+            _ => {},
+        }
+        if self.change_mode == ChangeMode::Signal && self.change_signal.is_none() {
+            return Err(crate::error::Error::Config(
+                "template with change_mode Signal requires a change_signal".to_owned(),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -64,13 +85,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn valid_template_passes() {
         assert!(template().validate().is_ok());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn rejects_empty_destination() {
         let mut t = template();
         t.destination = String::new();
@@ -78,7 +97,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn rejects_both_sources() {
         let mut t = template();
         t.source = Some("local/in.tpl".to_owned());
@@ -86,7 +104,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn rejects_neither_source() {
         let mut t = template();
         t.embedded = None;
@@ -94,7 +111,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn signal_mode_requires_signal() {
         let mut t = template();
         t.change_mode = ChangeMode::Signal;
