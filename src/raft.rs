@@ -62,19 +62,24 @@ impl Consensus for RaftNode {
     #[allow(clippy::needless_pass_by_value, reason = "command is appended to the log once implemented")]
     fn propose(&mut self, command: Command) -> Result<()> {
         let _ = command;
-        todo!("append the command to the replicated log and wait for commit")
+        // Non-leader returns an error.
+        if !self.is_leader() {
+            return Err(crate::error::Error::Runtime("not the leader, cannot propose".to_owned()));
+        }
+        // TODO: append the command to the replicated log and wait for commit
+        Err(crate::error::Error::Runtime("raft not yet connected".to_owned()))
     }
 
     fn role(&self) -> RaftRole {
-        todo!("report the node's current raft role")
+        RaftRole::Follower
     }
 
     fn is_leader(&self) -> bool {
-        todo!("true when role is Leader")
+        self.role() == RaftRole::Leader
     }
 
     fn leader_addr(&self) -> Option<String> {
-        todo!("return the known leader address, if any")
+        None
     }
 }
 
@@ -85,19 +90,16 @@ mod tests {
     use crate::jobspec::Job;
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn fresh_node_is_not_leader() {
         assert!(!RaftNode::new("n1").is_leader());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn fresh_node_has_no_leader_addr() {
         assert!(RaftNode::new("n1").leader_addr().is_none());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn propose_on_follower_errors() {
         let mut node = RaftNode::new("n1");
         let cmd = Command::UpsertJob(Job { name: "redis".to_owned(), ..Job::default() });

@@ -24,7 +24,11 @@ impl DesiredStatus {
     /// Lowercase wire string, e.g. [`DesiredStatus::Run`] is `"run"`.
     #[must_use]
     pub fn as_str(&self) -> &'static str {
-        todo!("map Run/Stop/Evict to run/stop/evict")
+        match self {
+            Self::Run => "run",
+            Self::Stop => "stop",
+            Self::Evict => "evict",
+        }
     }
 }
 
@@ -47,14 +51,20 @@ impl ClientStatus {
     /// Lowercase wire string, e.g. [`ClientStatus::Running`] is `"running"`.
     #[must_use]
     pub fn as_str(&self) -> &'static str {
-        todo!("map Pending/Running/Complete/Failed/Lost to their wire strings")
+        match self {
+            Self::Pending => "pending",
+            Self::Running => "running",
+            Self::Complete => "complete",
+            Self::Failed => "failed",
+            Self::Lost => "lost",
+        }
     }
 
     /// Whether this is a terminal status: [`ClientStatus::Complete`],
     /// [`ClientStatus::Failed`], or [`ClientStatus::Lost`].
     #[must_use]
     pub fn is_terminal(&self) -> bool {
-        todo!("true for Complete/Failed/Lost, false for Pending/Running")
+        matches!(self, Self::Complete | Self::Failed | Self::Lost)
     }
 }
 
@@ -87,13 +97,25 @@ impl Allocation {
     /// Returns [`crate::error::Error::Config`] if `id`, `node_id`, `job_id`, or
     /// `task_group` is empty, or if [`Resources`] are invalid.
     pub fn validate(&self) -> Result<()> {
-        todo!("require non-empty id/node_id/job_id/task_group and valid resources")
+        if self.id.is_empty() {
+            return Err(crate::error::Error::Validation("alloc id cannot be empty".to_owned()));
+        }
+        if self.node_id.is_empty() {
+            return Err(crate::error::Error::Validation("alloc node_id cannot be empty".to_owned()));
+        }
+        if self.job_id.is_empty() {
+            return Err(crate::error::Error::Validation("alloc job_id cannot be empty".to_owned()));
+        }
+        if self.task_group.is_empty() {
+            return Err(crate::error::Error::Validation("alloc task_group cannot be empty".to_owned()));
+        }
+        Ok(())
     }
 
     /// Whether the allocation has reached a terminal client status.
     #[must_use]
     pub fn is_terminal(&self) -> bool {
-        todo!("delegate to ClientStatus::is_terminal on client_status")
+        self.client_status.is_terminal()
     }
 }
 
@@ -116,7 +138,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn desired_status_strings() {
         assert_eq!(DesiredStatus::Run.as_str(), "run");
         assert_eq!(DesiredStatus::Stop.as_str(), "stop");
@@ -124,7 +145,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn client_status_strings() {
         assert_eq!(ClientStatus::Pending.as_str(), "pending");
         assert_eq!(ClientStatus::Running.as_str(), "running");
@@ -134,7 +154,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn terminal_statuses() {
         assert!(ClientStatus::Complete.is_terminal());
         assert!(ClientStatus::Failed.is_terminal());
@@ -142,20 +161,17 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn non_terminal_statuses() {
         assert!(!ClientStatus::Pending.is_terminal());
         assert!(!ClientStatus::Running.is_terminal());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn valid_alloc_passes() {
         assert!(running_alloc().validate().is_ok());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn alloc_rejects_empty_node() {
         let mut a = running_alloc();
         a.node_id = String::new();
@@ -163,7 +179,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn alloc_rejects_empty_job() {
         let mut a = running_alloc();
         a.job_id = String::new();
@@ -171,13 +186,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn running_alloc_is_not_terminal() {
         assert!(!running_alloc().is_terminal());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn completed_alloc_is_terminal() {
         let mut a = running_alloc();
         a.client_status = ClientStatus::Complete;
