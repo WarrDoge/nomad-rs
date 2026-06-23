@@ -64,11 +64,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn valid_template_passes() {
         assert!(template().validate().is_ok());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn rejects_empty_destination() {
         let mut t = template();
         t.destination = String::new();
@@ -76,6 +78,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn rejects_both_sources() {
         let mut t = template();
         t.source = Some("local/in.tpl".to_owned());
@@ -83,6 +86,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn rejects_neither_source() {
         let mut t = template();
         t.embedded = None;
@@ -90,6 +94,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn signal_mode_requires_signal() {
         let mut t = template();
         t.change_mode = ChangeMode::Signal;

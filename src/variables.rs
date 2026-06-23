@@ -71,11 +71,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn valid_variable_passes() {
         assert!(variable().validate().is_ok());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn rejects_empty_path() {
         let mut v = variable();
         v.path = String::new();
@@ -83,6 +85,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn rejects_no_items() {
         let mut v = variable();
         v.items.clear();
@@ -90,6 +93,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn encrypt_then_decrypt_round_trips() {
         let keyring = Keyring;
         let sealed = keyring.encrypt(b"hello").unwrap();

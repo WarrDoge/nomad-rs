@@ -112,9 +112,7 @@ impl Job {
             return Err(Error::Validation("at least one datacenter is required".into()));
         }
         if self.datacenters.iter().any(String::is_empty) {
-            return Err(Error::Validation(
-                "datacenter names cannot be empty".into(),
-            ));
+            return Err(Error::Validation("datacenter names cannot be empty".into()));
         }
         for tg in &self.task_groups {
             tg.validate()?;
@@ -141,10 +139,7 @@ impl TaskGroup {
             )));
         }
         if self.tasks.is_empty() {
-            return Err(Error::Validation(format!(
-                "task group '{}' has no tasks",
-                self.name
-            )));
+            return Err(Error::Validation(format!("task group '{}' has no tasks", self.name)));
         }
         let mut seen = std::collections::HashSet::new();
         for task in &self.tasks {

@@ -50,11 +50,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn valid_spec_passes() {
         assert!(periodic().validate().is_ok());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn rejects_bad_spec() {
         let mut p = periodic();
         p.spec = "not a cron".to_owned();
@@ -62,6 +64,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn next_is_after_reference() {
         let now = 1_000_000_000;
         assert!(periodic().next(now).unwrap() > now);

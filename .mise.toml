@@ -1,4 +1,5 @@
 [tools]
+# Keep in sync with rust-toolchain.toml (the canonical pin).
 rust = "1.96.0"
 # Pin nushell as the default shell — sourced from GitHub releases via aqua
 "aqua:nushell/nushell" = "latest"

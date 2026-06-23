@@ -9,18 +9,7 @@ use crate::config::Config;
 use crate::error::Result;
 
 /// The possible states a Nomad server can be in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ServerStatus {
-    // TODO: consolidate with ClientStatus/SchedulerStatus into AgentStatus
-    /// The server has been created but is not running.
-    Initialized,
-    /// The server is actively running.
-    Running,
-    /// The server has been stopped.
-    Stopped,
-    /// The server encountered a terminal error.
-    Failed,
-}
+pub use crate::agent::AgentStatus as ServerStatus;
 
 /// A Nomad server node in the cluster.
 #[derive(Debug)]

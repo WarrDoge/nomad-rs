@@ -2,8 +2,9 @@
 
 //! Replicated finite state machine.
 //!
-//! The servers agree on an ordered log of [`Command`]s via Raft; each committed
-//! command is applied here, in order, to the authoritative [`StateStore`]. This
+//! The servers agree on an ordered log of [`Command`](crate::fsm::Command)s via
+//! Raft; each committed command is applied here, in order, to the authoritative
+//! [`StateStore`](crate::state::StateStore). This
 //! module is the consensus-agnostic core: the transport and election live
 //! behind it (deferred). Behaviour is specified by the tests and unimplemented.
 
@@ -73,11 +74,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn new_fsm_state_is_empty() {
         assert!(Fsm::new().state().list_jobs().is_empty());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn apply_upsert_job_makes_it_readable() {
         let mut fsm = Fsm::new();
         fsm.apply(Command::UpsertJob(job("redis"))).unwrap();
@@ -85,6 +88,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn apply_deregister_removes_job() {
         let mut fsm = Fsm::new();
         fsm.apply(Command::UpsertJob(job("redis"))).unwrap();

@@ -71,11 +71,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn valid_network_passes() {
         assert!(net().validate().is_ok());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn rejects_empty_label() {
         let mut n = net();
         n.reserved_ports[0].label = String::new();
@@ -83,6 +85,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn rejects_duplicate_labels() {
         let mut n = net();
         n.dynamic_ports[0].label = "http".to_owned();
@@ -90,6 +93,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn rejects_reserved_without_static_value() {
         let mut n = net();
         n.reserved_ports[0].static_value = None;

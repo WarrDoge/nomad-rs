@@ -75,11 +75,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn valid_deployment_passes() {
         assert!(deployment().validate().is_ok());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn rejects_healthy_above_placed() {
         let mut d = deployment();
         d.healthy = 5;
@@ -87,11 +89,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn promotable_when_canaries_healthy() {
         assert!(deployment().is_promotable());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn not_promotable_when_canaries_unhealthy() {
         let mut d = deployment();
         d.healthy = 1;

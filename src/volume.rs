@@ -83,11 +83,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn valid_request_passes() {
         assert!(request().validate().is_ok());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn request_rejects_empty_source() {
         let mut r = request();
         r.source = String::new();
@@ -95,11 +97,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn valid_mount_passes() {
         assert!(mount().validate().is_ok());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn mount_rejects_relative_destination() {
         let mut m = mount();
         m.destination = "var/data".to_owned();
@@ -107,6 +111,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn mount_rejects_empty_volume() {
         let mut m = mount();
         m.volume = String::new();

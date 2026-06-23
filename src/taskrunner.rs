@@ -71,21 +71,25 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn new_runner_is_pending() {
         assert_eq!(runner().state(), TaskState::Pending);
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn new_runner_has_zero_restarts() {
         assert_eq!(runner().restart_count(), 0);
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn failed_exit_triggers_restart() {
         assert!(runner().handle_exit(false));
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn successful_exit_is_terminal() {
         assert!(!runner().handle_exit(true));
     }

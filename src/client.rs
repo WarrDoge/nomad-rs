@@ -9,18 +9,7 @@ use crate::config::Config;
 use crate::error::Result;
 
 /// The possible states a Nomad client can be in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ClientStatus {
-    // TODO: consolidate with ServerStatus/SchedulerStatus into AgentStatus
-    /// The client has been created but is not running.
-    Initialized,
-    /// The client is actively running.
-    Running,
-    /// The client has been stopped.
-    Stopped,
-    /// The client encountered a terminal error.
-    Failed,
-}
+pub use crate::agent::AgentStatus as ClientStatus;
 
 /// A Nomad client agent that manages local task execution.
 #[derive(Debug)]

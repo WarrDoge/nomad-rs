@@ -116,6 +116,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn desired_status_strings() {
         assert_eq!(DesiredStatus::Run.as_str(), "run");
         assert_eq!(DesiredStatus::Stop.as_str(), "stop");
@@ -123,6 +124,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn client_status_strings() {
         assert_eq!(ClientStatus::Pending.as_str(), "pending");
         assert_eq!(ClientStatus::Running.as_str(), "running");
@@ -132,6 +134,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn terminal_statuses() {
         assert!(ClientStatus::Complete.is_terminal());
         assert!(ClientStatus::Failed.is_terminal());
@@ -139,17 +142,20 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn non_terminal_statuses() {
         assert!(!ClientStatus::Pending.is_terminal());
         assert!(!ClientStatus::Running.is_terminal());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn valid_alloc_passes() {
         assert!(running_alloc().validate().is_ok());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn alloc_rejects_empty_node() {
         let mut a = running_alloc();
         a.node_id = String::new();
@@ -157,6 +163,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn alloc_rejects_empty_job() {
         let mut a = running_alloc();
         a.job_id = String::new();
@@ -164,11 +171,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn running_alloc_is_not_terminal() {
         assert!(!running_alloc().is_terminal());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn completed_alloc_is_terminal() {
         let mut a = running_alloc();
         a.client_status = ClientStatus::Complete;

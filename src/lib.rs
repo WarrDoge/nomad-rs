@@ -116,6 +116,9 @@ pub mod namespace;
 /// Node drain orchestration.
 pub mod drain;
 
+/// Shared agent lifecycle status.
+pub mod agent;
+
 /// Error types used across the project.
 pub mod error;
 

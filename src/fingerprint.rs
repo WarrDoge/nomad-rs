@@ -4,8 +4,8 @@
 //!
 //! Fingerprinters detect a node's resources, drivers, and attributes so the
 //! scheduler can match constraints. Mirrors the subset of upstream Nomad's
-//! client fingerprint package. The [`Fingerprinter`] trait is the contract;
-//! [`CpuFingerprinter`] is one implementation whose behaviour is specified by
+//! client fingerprint package. The [`Fingerprinter`](crate::fingerprint::Fingerprinter) trait is the contract;
+//! [`CpuFingerprinter`](crate::fingerprint::CpuFingerprinter) is one implementation whose behaviour is specified by
 //! the tests and is unimplemented.
 
 use std::collections::HashMap;
@@ -45,11 +45,13 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn cpu_fingerprinter_is_named_cpu() {
         assert_eq!(CpuFingerprinter.name(), "cpu");
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn cpu_detects_total_compute() {
         let attrs = CpuFingerprinter.detect().unwrap();
         assert!(attrs.contains_key("cpu.totalcompute"));

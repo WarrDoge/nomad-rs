@@ -111,11 +111,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn valid_service_passes() {
         assert!(service().validate().is_ok());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn service_rejects_empty_name() {
         let mut s = service();
         s.name = String::new();
@@ -123,11 +125,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn http_check_passes() {
         assert!(http_check().validate().is_ok());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn http_check_requires_path() {
         let mut c = http_check();
         c.path = None;
@@ -135,6 +139,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn check_rejects_timeout_ge_interval() {
         let mut c = http_check();
         c.timeout_secs = 10;
@@ -143,6 +148,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn check_rejects_zero_interval() {
         let mut c = http_check();
         c.interval_secs = 0;

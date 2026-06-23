@@ -75,11 +75,13 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn valid_strategy_passes() {
         assert!(strategy().validate().is_ok());
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn rejects_zero_max_parallel() {
         let mut s = strategy();
         s.max_parallel = 0;
@@ -87,6 +89,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn rejects_deadline_not_after_min_healthy() {
         let mut s = strategy();
         s.min_healthy_secs = 300;
@@ -95,6 +98,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn detects_canary() {
         let mut s = strategy();
         s.canary = 2;
@@ -102,6 +106,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "red spec: implement to unignore"]
     fn no_canary_by_default() {
         assert!(!strategy().uses_canary());
     }

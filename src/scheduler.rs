@@ -8,18 +8,7 @@
 use crate::error::Result;
 
 /// The possible states a scheduler can be in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SchedulerStatus {
-    // TODO: consolidate with ClientStatus/ServerStatus into AgentStatus
-    /// The scheduler has been created but is not running.
-    Initialized,
-    /// The scheduler is actively processing evaluations.
-    Running,
-    /// The scheduler has been stopped.
-    Stopped,
-    /// The scheduler encountered a terminal error.
-    Failed,
-}
+pub use crate::agent::AgentStatus as SchedulerStatus;
 
 /// The core scheduler responsible for placing tasks onto nodes.
 #[derive(Debug)]
