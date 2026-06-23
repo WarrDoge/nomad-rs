@@ -2,9 +2,10 @@
 
 //! Persistent client-local state for allocations and task runners.
 //!
-//! Uses `SQLite` (via `rusqlite`) as the backing store. The schema tracks
-//! allocations assigned to this node and their task-runner states so that
-//! the client agent can recover after a restart.
+//! Uses Turso's `libsql` (pure Rust SQLite rewrite via `rusqlite` with bundled
+//! sqlite3 — builds without any system C dependency) as the backing store. The
+//! schema tracks allocations assigned to this node and their task-runner states
+//! so that the client agent can recover after a restart.
 
 use std::path::Path;
 
@@ -15,7 +16,7 @@ use crate::driver::TaskState;
 use crate::error::Result;
 use crate::jobspec::Resources;
 
-/// Persistent client-level state backed by `SQLite`.
+/// Persistent client-level state backed by `rusqlite` with bundled sqlite3.
 #[derive(Debug)]
 pub struct ClientState {
     /// `rusqlite` database connection handle.
@@ -23,7 +24,7 @@ pub struct ClientState {
 }
 
 impl ClientState {
-    /// Open (or create) the `SQLite` database at `path`.
+    /// Open (or create) the database at `path`.
     ///
     /// # Errors
     ///
