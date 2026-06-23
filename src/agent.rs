@@ -66,7 +66,8 @@ impl Agent {
     }
 
     /// Reconfigure the agent from a new config. Sub-agents are stopped
-    /// before being replaced.
+    /// before being replaced. The new config may not be valid — validation
+    /// happens on the next [`Agent::run`] call.
     pub fn reconfigure(&mut self, config: Config) {
         self.config = config;
         if let Some(mut client) = self.client.take() {
@@ -75,7 +76,7 @@ impl Agent {
         if let Some(mut server) = self.server.take() {
             server.stop();
         }
-        tracing::info!("agent reconfigured");
+        tracing::info!("config accepted, old sub-agents stopped");
     }
 
     /// Run the agent, handling signals and graceful shutdown.
