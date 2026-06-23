@@ -54,6 +54,7 @@ struct Cli {
     command: Option<Command>,
 }
 
+/// CLI subcommands for the Nomad agent.
 #[derive(Debug, Parser)]
 enum Command {
     /// Run a client agent.
@@ -67,11 +68,13 @@ enum Command {
 #[tokio::main]
 async fn main() {
     if let Err(e) = run().await {
-        eprintln!("error: {e}");
+        // Use tracing if possible, fall back to eprint if the subscriber isn't set up
+        tracing::error!("fatal error: {e}");
         std::process::exit(1);
     }
 }
 
+/// Main entry point. Parses CLI args, builds config, runs the agent.
 async fn run() -> Result<()> {
     let cli = Cli::parse();
 

@@ -146,10 +146,10 @@ impl Config {
         if let Ok(v) = std::env::var("NOMAD_LOG_DIR") {
             self.log_dir = PathBuf::from(v);
         }
-        if let Ok(v) = std::env::var("NOMAD_LOG_LEVEL") {
-            if let Some(level) = LogLevel::parse(&v) {
-                self.log_level = level;
-            }
+        if let Ok(v) = std::env::var("NOMAD_LOG_LEVEL")
+            && let Some(level) = LogLevel::parse(&v)
+        {
+            self.log_level = level;
         }
         if let Ok(v) = std::env::var("NOMAD_BIND_ADDR") {
             self.bind_addr = v;
@@ -320,7 +320,7 @@ log_dir = "/tmp/nomad-logs"
 
     #[test]
     fn test_config_validate_empty_bind_addr() {
-        let config = Config { bind_addr: "".to_owned(), ..Config::default() };
+        let config = Config { bind_addr: String::new(), ..Config::default() };
         assert!(config.validate().is_err());
     }
 

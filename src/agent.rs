@@ -148,25 +148,20 @@ impl Agent {
             }
         };
 
-        match timeout(Duration::from_secs(30), shutdown).await {
-            Ok(()) => {
-                self.status = AgentStatus::Stopped;
-                tracing::info!("graceful shutdown complete");
-                Ok(())
-            },
-            Err(_) => {
-                self.status = AgentStatus::Failed;
-                tracing::error!("graceful shutdown timed out after 30s");
-                Err(crate::error::Error::Runtime("shutdown timed out after 30s".to_owned()))
-            },
+        if let Ok(()) = timeout(Duration::from_secs(30), shutdown).await {
+            self.status = AgentStatus::Stopped;
+            tracing::info!("graceful shutdown complete");
+            Ok(())
+        } else {
+            self.status = AgentStatus::Failed;
+            tracing::error!("graceful shutdown timed out after 30s");
+            Err(crate::error::Error::Runtime("shutdown timed out after 30s".to_owned()))
         }
     }
 
     /// Reload configuration from the config file path.
+    #[allow(clippy::unused_async)]
     async fn reload_config(&mut self) -> Result<()> {
-        // Re-parse the config file (if a path was originally provided).
-        // In this phase we just log that a reload was triggered.
-        // Full config merge is in Phase 1 items below.
         tracing::info!("config reload triggered");
         // TODO: re-read config file, merge env vars, merge CLI flags
         Ok(())
