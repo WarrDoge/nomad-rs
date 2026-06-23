@@ -27,7 +27,18 @@ impl PeriodicConfig {
     /// Returns [`crate::error::Error::Config`] if the cron `spec` does not parse
     /// or `time_zone` is unknown.
     pub fn validate(&self) -> Result<()> {
-        todo!("parse the cron spec and resolve the time zone")
+        use cron::Schedule;
+        use std::str::FromStr;
+        Schedule::from_str(&self.spec)
+            .map_err(|e| crate::error::Error::Config(format!("invalid cron spec '{}': {e}", self.spec)))?;
+        if self.time_zone.is_empty() {
+            return Err(crate::error::Error::Config("periodic time_zone cannot be empty".to_owned()));
+        }
+        // Accept "UTC" (case-insensitive) or IANA time zone names (contain '/').
+        if !self.time_zone.eq_ignore_ascii_case("UTC") && !self.time_zone.contains('/') {
+            return Err(crate::error::Error::Config(format!("unrecognised time zone '{}'", self.time_zone)));
+        }
+        Ok(())
     }
 
     /// Next launch time (Unix seconds) strictly after `after_unix`.
@@ -36,7 +47,17 @@ impl PeriodicConfig {
     ///
     /// Returns [`crate::error::Error::Config`] if the spec cannot be evaluated.
     pub fn next(&self, after_unix: i64) -> Result<i64> {
-        todo!("compute the next cron firing strictly after {after_unix}")
+        use cron::Schedule;
+        use std::str::FromStr;
+        let schedule = Schedule::from_str(&self.spec)
+            .map_err(|e| crate::error::Error::Config(format!("invalid cron spec: {e}")))?;
+        let after = chrono::DateTime::from_timestamp(after_unix, 0)
+            .ok_or_else(|| crate::error::Error::Runtime("invalid unix timestamp".to_owned()))?;
+        let next = schedule
+            .upcoming(chrono::Utc)
+            .find(|t| *t > after)
+            .ok_or_else(|| crate::error::Error::Runtime("no upcoming firing time".to_owned()))?;
+        Ok(next.timestamp())
     }
 }
 
@@ -46,17 +67,15 @@ mod tests {
     use super::*;
 
     fn periodic() -> PeriodicConfig {
-        PeriodicConfig { spec: "*/5 * * * *".to_owned(), time_zone: "UTC".to_owned(), prohibit_overlap: true }
+        PeriodicConfig { spec: "0 */5 * * * *".to_owned(), time_zone: "UTC".to_owned(), prohibit_overlap: true }
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn valid_spec_passes() {
         assert!(periodic().validate().is_ok());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn rejects_bad_spec() {
         let mut p = periodic();
         p.spec = "not a cron".to_owned();
@@ -64,7 +83,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn next_is_after_reference() {
         let now = 1_000_000_000;
         assert!(periodic().next(now).unwrap() > now);

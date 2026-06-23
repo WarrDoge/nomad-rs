@@ -47,13 +47,22 @@ impl UpdateStrategy {
     /// Returns [`crate::error::Error::Config`] if `max_parallel` is zero or
     /// `healthy_deadline_secs <= min_healthy_secs`.
     pub fn validate(&self) -> Result<()> {
-        todo!("require max_parallel>=1 and healthy_deadline > min_healthy")
+        if self.max_parallel == 0 {
+            return Err(crate::error::Error::Config("update max_parallel must be >= 1".to_owned()));
+        }
+        if self.healthy_deadline_secs <= self.min_healthy_secs {
+            return Err(crate::error::Error::Config(format!(
+                "update healthy_deadline_secs ({}) must exceed min_healthy_secs ({})",
+                self.healthy_deadline_secs, self.min_healthy_secs
+            )));
+        }
+        Ok(())
     }
 
     /// Whether this strategy deploys canaries first.
     #[must_use]
     pub fn uses_canary(&self) -> bool {
-        todo!("true when canary > 0")
+        self.canary > 0
     }
 }
 
@@ -75,13 +84,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn valid_strategy_passes() {
         assert!(strategy().validate().is_ok());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn rejects_zero_max_parallel() {
         let mut s = strategy();
         s.max_parallel = 0;
@@ -89,7 +96,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn rejects_deadline_not_after_min_healthy() {
         let mut s = strategy();
         s.min_healthy_secs = 300;
@@ -98,7 +104,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn detects_canary() {
         let mut s = strategy();
         s.canary = 2;
@@ -106,7 +111,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn no_canary_by_default() {
         assert!(!strategy().uses_canary());
     }

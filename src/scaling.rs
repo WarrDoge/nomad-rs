@@ -26,13 +26,16 @@ impl ScalingPolicy {
     ///
     /// Returns [`crate::error::Error::Config`] if `min > max`.
     pub fn validate(&self) -> Result<()> {
-        todo!("require min <= max")
+        if self.min > self.max {
+            return Err(crate::error::Error::Config(format!("scaling min ({}) exceeds max ({})", self.min, self.max)));
+        }
+        Ok(())
     }
 
     /// Clamp a desired count into `[min, max]`.
     #[must_use]
     pub fn clamp(&self, desired: u32) -> u32 {
-        todo!("clamp {desired} into [{}, {}]", self.min, self.max)
+        desired.clamp(self.min, self.max)
     }
 }
 
@@ -46,13 +49,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn valid_policy_passes() {
         assert!(policy().validate().is_ok());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn rejects_min_above_max() {
         let mut p = policy();
         p.min = 20;
@@ -60,19 +61,16 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn clamps_above_max_to_max() {
         assert_eq!(policy().clamp(99), 10);
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn clamps_below_min_to_min() {
         assert_eq!(policy().clamp(0), 1);
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn leaves_in_range_untouched() {
         assert_eq!(policy().clamp(5), 5);
     }

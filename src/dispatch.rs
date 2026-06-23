@@ -51,7 +51,36 @@ impl ParameterizedJob {
     /// missing, an unknown meta key is supplied, or the payload presence
     /// violates [`PayloadMode`].
     pub fn validate_dispatch(&self, request: &DispatchRequest) -> Result<()> {
-        todo!("check required/allowed meta keys and payload mode for {} keys", request.meta.len())
+        // All required meta keys must be present.
+        for required in &self.meta_required {
+            if !request.meta.contains_key(required) {
+                return Err(crate::error::Error::Config(format!("dispatch missing required meta key '{required}'")));
+            }
+        }
+
+        // Unknown meta keys (not in required ∪ optional) are rejected.
+        let known: std::collections::HashSet<&str> =
+            self.meta_required.iter().chain(self.meta_optional.iter()).map(String::as_str).collect();
+        for key in request.meta.keys() {
+            if !known.contains(key.as_str()) {
+                return Err(crate::error::Error::Config(format!(
+                    "dispatch meta key '{key}' is not declared in the parameterized job"
+                )));
+            }
+        }
+
+        // Payload presence must match the configured mode.
+        match self.payload {
+            PayloadMode::Forbidden if request.payload.is_some() => {
+                return Err(crate::error::Error::Config("dispatch payload is forbidden by the job spec".to_owned()));
+            },
+            PayloadMode::Required if request.payload.is_none() => {
+                return Err(crate::error::Error::Config("dispatch payload is required by the job spec".to_owned()));
+            },
+            _ => {},
+        }
+
+        Ok(())
     }
 }
 
@@ -73,13 +102,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn valid_dispatch_passes() {
         assert!(template().validate_dispatch(&request()).is_ok());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn missing_required_meta_errors() {
         let mut r = request();
         r.meta.clear();
@@ -87,7 +114,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn forbidden_payload_errors() {
         let mut r = request();
         r.payload = Some(vec![1, 2, 3]);

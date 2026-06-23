@@ -37,7 +37,13 @@ impl VolumeRequest {
     ///
     /// Returns [`crate::error::Error::Config`] if `name` or `source` is empty.
     pub fn validate(&self) -> Result<()> {
-        todo!("require a non-empty name and source")
+        if self.name.is_empty() {
+            return Err(crate::error::Error::Config("volume request name cannot be empty".to_owned()));
+        }
+        if self.source.is_empty() {
+            return Err(crate::error::Error::Config("volume request source cannot be empty".to_owned()));
+        }
+        Ok(())
     }
 }
 
@@ -60,7 +66,16 @@ impl VolumeMount {
     /// Returns [`crate::error::Error::Config`] if `volume` is empty or
     /// `destination` is not an absolute path.
     pub fn validate(&self) -> Result<()> {
-        todo!("require a volume name and an absolute destination path")
+        if self.volume.is_empty() {
+            return Err(crate::error::Error::Config("volume mount volume name cannot be empty".to_owned()));
+        }
+        if !self.destination.starts_with('/') {
+            return Err(crate::error::Error::Config(format!(
+                "volume mount destination '{}' is not an absolute path",
+                self.destination
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -83,13 +98,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn valid_request_passes() {
         assert!(request().validate().is_ok());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn request_rejects_empty_source() {
         let mut r = request();
         r.source = String::new();
@@ -97,13 +110,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn valid_mount_passes() {
         assert!(mount().validate().is_ok());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn mount_rejects_relative_destination() {
         let mut m = mount();
         m.destination = "var/data".to_owned();
@@ -111,7 +122,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn mount_rejects_empty_volume() {
         let mut m = mount();
         m.volume = String::new();
