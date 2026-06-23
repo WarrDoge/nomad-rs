@@ -54,13 +54,14 @@ impl Constraint {
         let right = self.right.as_str();
 
         match self.operand.as_str() {
-            "=" | "version" => attr_val == right,
+            "=" => attr_val == right,
             "!=" => attr_val != right,
             ">" => cmp_num(attr_val, right, |a, b| a > b),
             ">=" => cmp_num(attr_val, right, |a, b| a >= b),
             "<" => cmp_num(attr_val, right, |a, b| a < b),
             "<=" => cmp_num(attr_val, right, |a, b| a <= b),
-            "regexp" => attr_val.contains(right.trim_matches('*')),
+            "regexp" => eval_regexp(attr_val, right),
+            "version" => eval_version(attr_val, right),
             "set_contains" => attr_val.split(',').any(|v| v.trim() == right),
             "distinct_hosts" | "distinct_property" => true,
             _ => false,
@@ -73,6 +74,49 @@ fn cmp_num(left: &str, right: &str, cmp: fn(i64, i64) -> bool) -> bool {
     let Ok(l) = left.parse::<i64>() else { return false };
     let Ok(r) = right.parse::<i64>() else { return false };
     cmp(l, r)
+}
+
+/// Evaluate a regexp constraint via the `regex` crate.
+fn eval_regexp(val: &str, pattern: &str) -> bool {
+    regex::Regex::new(pattern).is_ok_and(|re| re.is_match(val))
+}
+
+/// Evaluate a version constraint via the `semver` crate.
+fn eval_version(val: &str, constraint: &str) -> bool {
+    let Ok(ver) = semver::Version::parse(val) else { return false };
+    // Support common operator-prefixed constraints: ">=1.2.3", "<2.0", "=1.0.0", "~1.0", "^1.0"
+    let constraint = constraint.trim();
+    if let Some(req) = constraint.strip_prefix(">=") {
+        let Ok(req) = semver::VersionReq::parse(&format!(">={req}")) else { return false };
+        return req.matches(&ver);
+    }
+    if let Some(req) = constraint.strip_prefix("<=") {
+        let Ok(req) = semver::VersionReq::parse(&format!("<={req}")) else { return false };
+        return req.matches(&ver);
+    }
+    if let Some(req) = constraint.strip_prefix('>') {
+        let Ok(req) = semver::VersionReq::parse(&format!(">{req}")) else { return false };
+        return req.matches(&ver);
+    }
+    if let Some(req) = constraint.strip_prefix('<') {
+        let Ok(req) = semver::VersionReq::parse(&format!("<{req}")) else { return false };
+        return req.matches(&ver);
+    }
+    if let Some(req) = constraint.strip_prefix('=') {
+        let Ok(req) = semver::VersionReq::parse(&format!("={req}")) else { return false };
+        return req.matches(&ver);
+    }
+    if let Some(req) = constraint.strip_prefix('~') {
+        let Ok(req) = semver::VersionReq::parse(&format!("~{req}")) else { return false };
+        return req.matches(&ver);
+    }
+    if let Some(req) = constraint.strip_prefix('^') {
+        let Ok(req) = semver::VersionReq::parse(&format!("^{req}")) else { return false };
+        return req.matches(&ver);
+    }
+    // Bare version string = exact match
+    let Ok(req) = semver::VersionReq::parse(constraint) else { return false };
+    req.matches(&ver)
 }
 
 /// A soft placement preference with a weight; nudges ranking, never excludes.
@@ -180,6 +224,42 @@ mod tests {
     fn equality_unsatisfied_when_attr_differs() {
         let c = Constraint { left: "os".to_owned(), right: "windows".to_owned(), operand: "=".to_owned() };
         assert!(!c.satisfied_by(&attrs()));
+    }
+
+    #[test]
+    fn regexp_operand_matches() {
+        let c = Constraint { left: "os".to_owned(), right: "^lin".to_owned(), operand: "regexp".to_owned() };
+        assert!(c.satisfied_by(&attrs()));
+    }
+
+    #[test]
+    fn regexp_operand_no_match() {
+        let c = Constraint { left: "os".to_owned(), right: "^win".to_owned(), operand: "regexp".to_owned() };
+        assert!(!c.satisfied_by(&attrs()));
+    }
+
+    #[test]
+    fn version_operand_matches_exact() {
+        let mut a = HashMap::new();
+        a.insert("version".to_owned(), "1.2.3".to_owned());
+        let c = Constraint { left: "version".to_owned(), right: ">=1.0.0".to_owned(), operand: "version".to_owned() };
+        assert!(c.satisfied_by(&a));
+    }
+
+    #[test]
+    fn version_operand_rejects_lower() {
+        let mut a = HashMap::new();
+        a.insert("version".to_owned(), "0.9.0".to_owned());
+        let c = Constraint { left: "version".to_owned(), right: ">=1.0.0".to_owned(), operand: "version".to_owned() };
+        assert!(!c.satisfied_by(&a));
+    }
+
+    #[test]
+    fn version_operand_handles_caret() {
+        let mut a = HashMap::new();
+        a.insert("version".to_owned(), "1.5.0".to_owned());
+        let c = Constraint { left: "version".to_owned(), right: "^1.0.0".to_owned(), operand: "version".to_owned() };
+        assert!(c.satisfied_by(&a));
     }
 
     #[test]

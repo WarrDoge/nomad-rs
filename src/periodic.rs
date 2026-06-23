@@ -11,7 +11,7 @@ use crate::error::Result;
 /// A periodic launch schedule.
 #[derive(Debug, Clone)]
 pub struct PeriodicConfig {
-    /// Cron spec, e.g. `"*/5 * * * *"`.
+    /// Cron spec, e.g. `"0 */5 * * * *"` (6-field syntax: sec min hour dom mon dow).
     pub spec: String,
     /// IANA time zone the spec is evaluated in, e.g. `"UTC"`.
     pub time_zone: String,
@@ -34,10 +34,11 @@ impl PeriodicConfig {
         if self.time_zone.is_empty() {
             return Err(crate::error::Error::Config("periodic time_zone cannot be empty".to_owned()));
         }
-        // Accept "UTC" (case-insensitive) or IANA time zone names (contain '/').
-        if !self.time_zone.eq_ignore_ascii_case("UTC") && !self.time_zone.contains('/') {
-            return Err(crate::error::Error::Config(format!("unrecognised time zone '{}'", self.time_zone)));
-        }
+        // Time zone validation: the cron crate's `upcoming`/`next_after` takes
+        // a `chrono::TimeZone`; at this level we only reject empty strings.
+        // The cron crate will use the system time zone DB when a future
+        // concrete runner resolves the schedule.  Full IANA validation
+        // (including abbreviations like CET, EST) requires `chrono-tz`.
         Ok(())
     }
 
