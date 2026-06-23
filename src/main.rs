@@ -2,10 +2,8 @@
 
 //! Nomad-rs binary entrypoint.
 //!
-//! Supports subcommands:
-//! - `nomad-rs agent` — run a client and/or server agent
-//! - `nomad-rs server` — run a server-only agent
-//! - `nomad-rs client` — run a client-only agent
+//! Builds a [`Config`] (defaults → file → env → CLI flags), then runs an
+//! [`Agent`] until a shutdown signal arrives.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
@@ -50,21 +48,6 @@ struct Cli {
     /// Region.
     #[arg(long, value_name = "REGION")]
     region: Option<String>,
-
-    /// Subcommand (defaults to `agent` if omitted).
-    #[command(subcommand)]
-    command: Option<Command>,
-}
-
-/// CLI subcommands for the Nomad agent.
-#[derive(Debug, Parser)]
-enum Command {
-    /// Run a client agent.
-    Client,
-    /// Run a server agent.
-    Server,
-    /// Run a client and/or server agent (default).
-    Agent,
 }
 
 #[tokio::main]
@@ -101,20 +84,13 @@ async fn main() {
     // Init logging subsystem now — all errors from here on are logged
     let _guard = nomad_rs::logging::init(&config);
 
-    if let Err(e) = run(config, cli.command.unwrap_or(Command::Agent)).await {
+    if let Err(e) = run(config).await {
         tracing::error!("fatal error: {e}");
         std::process::exit(1);
     }
 }
 
 /// Build and run the agent.
-async fn run(config: Config, command: Command) -> Result<()> {
-    match command {
-        Command::Agent | Command::Client | Command::Server => {
-            let mut agent = Agent::new(config);
-            agent.run().await?;
-        },
-    }
-
-    Ok(())
+async fn run(config: Config) -> Result<()> {
+    Agent::new(config).run().await
 }

@@ -5,8 +5,6 @@
 //! Sets up a `tracing` subscriber with env-filter support and optional
 //! file rotation.  Call [`crate::logging::init`] once at process start.
 
-use std::path::Path;
-
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::filter::{Directive, EnvFilter};
 use tracing_subscriber::prelude::*;
@@ -15,12 +13,9 @@ use crate::config::Config;
 
 /// Build an `EnvFilter` from a static log-level directive.
 ///
-/// `level` must be a valid `LogLevel::filter_directive()` output.
-/// The builder also respects `RUST_LOG` from the environment.
+/// `level` is a `LogLevel::as_str()` output ("error".."trace"); if it somehow
+/// fails to parse, the filter defaults to `info`. Also respects `RUST_LOG`.
 fn build_filter(level: &str) -> EnvFilter {
-    // `level` is always a valid `LogLevel::filter_directive()` output:
-    // one of "error", "warn", "info", "debug", "trace".
-    // If parsing somehow fails, the filter defaults to `info`.
     let directive: Directive = level.parse().unwrap_or_default();
     EnvFilter::builder().with_default_directive(directive).from_env_lossy()
 }
@@ -36,9 +31,9 @@ fn build_filter(level: &str) -> EnvFilter {
 /// Panics if the subscriber has already been set.
 #[must_use]
 pub fn init(config: &Config) -> Option<WorkerGuard> {
-    let filter = build_filter(config.log_level.filter_directive());
+    let filter = build_filter(config.log_level.as_str());
 
-    if config.log_dir.as_os_str().is_empty() || config.log_dir == Path::new("") {
+    if config.log_dir.as_os_str().is_empty() {
         let subscriber = tracing_subscriber::registry().with(filter).with(tracing_subscriber::fmt::layer());
         subscriber.init();
         return None;

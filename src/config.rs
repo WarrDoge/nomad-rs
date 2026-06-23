@@ -54,18 +54,6 @@ impl LogLevel {
             _ => None,
         }
     }
-
-    /// Return the env-filter directive for this level.
-    #[must_use]
-    pub const fn filter_directive(&self) -> &'static str {
-        match self {
-            Self::Error => "error",
-            Self::Warn => "warn",
-            Self::Info => "info",
-            Self::Debug => "debug",
-            Self::Trace => "trace",
-        }
-    }
 }
 
 impl std::fmt::Display for LogLevel {
@@ -346,11 +334,5 @@ log_dir = "/tmp/nomad-logs"
         assert_eq!(merged.node_name, "cli-node");
         assert_eq!(merged.region, "cli-region");
         assert_eq!(merged.bind_addr, "0.0.0.0:4646"); // unchanged
-    }
-
-    #[test]
-    fn test_filter_directive() {
-        assert_eq!(LogLevel::Error.filter_directive(), "error");
-        assert_eq!(LogLevel::Trace.filter_directive(), "trace");
     }
 }

@@ -3,10 +3,7 @@
 //! Agent lifecycle — the top-level orchestrator that holds a [`crate::client::Client`]
 //! and/or [`crate::server::Server`] process and drives their graceful lifecycle.
 
-use std::time::Duration;
-
 use tokio::signal::unix::{SignalKind, signal};
-use tokio::time::timeout;
 
 use crate::client::Client;
 use crate::config::Config;
@@ -47,47 +44,12 @@ impl Agent {
         Self { config, client: None, server: None, status: AgentStatus::Initialized }
     }
 
-    /// Returns the configuration.
-    #[must_use]
-    pub fn config(&self) -> &Config {
-        &self.config
-    }
-
-    /// Returns the current status.
-    #[must_use]
-    pub fn status(&self) -> AgentStatus {
-        self.status
-    }
-
-    /// Returns `true` if the agent is running.
-    #[must_use]
-    pub fn is_running(&self) -> bool {
-        self.status == AgentStatus::Running
-    }
-
-    /// Reconfigure the agent from a new config. Sub-agents are stopped
-    /// before being replaced. The new config may not be valid — validation
-    /// happens on the next [`Agent::run`] call.
-    pub fn reconfigure(&mut self, config: Config) {
-        self.config = config;
-        if let Some(mut client) = self.client.take() {
-            client.stop();
-        }
-        if let Some(mut server) = self.server.take() {
-            server.stop();
-        }
-        tracing::info!("config accepted, old sub-agents stopped");
-    }
-
-    /// Run the agent, handling signals and graceful shutdown.
-    ///
-    /// Returns `Ok(())` after a clean shutdown, or an error if the
-    /// shutdown timeout expires.
+    /// Run the agent: start sub-agents, then block until a shutdown signal.
     ///
     /// # Errors
     ///
-    /// Returns an error if sub-agent creation or startup fails, or if the
-    /// shutdown grace period expires.
+    /// Returns an error if sub-agent creation, startup, or signal
+    /// registration fails.
     pub async fn run(&mut self) -> Result<()> {
         if self.status == AgentStatus::Running {
             return Ok(());
@@ -103,72 +65,39 @@ impl Agent {
 
         self.client = Some(client);
         self.server = Some(server);
-        let old_status = std::mem::replace(&mut self.status, AgentStatus::Running);
-        tracing::info!(?old_status, "agent running");
+        self.status = AgentStatus::Running;
+        tracing::info!("agent running");
 
         // Set up signal handling.
         let mut sigint = signal(SignalKind::interrupt())?;
         let mut sigterm = signal(SignalKind::terminate())?;
         let mut sighup = signal(SignalKind::hangup())?;
 
-        // Wait for a signal.
+        // Wait for any shutdown signal.
         tokio::select! {
-            _ = sigint.recv() => {
-                tracing::info!("received SIGINT, shutting down");
-            }
-            _ = sigterm.recv() => {
-                tracing::info!("received SIGTERM, shutting down");
-            }
-            _ = sighup.recv() => {
-                tracing::info!("received SIGHUP, reloading config");
-                self.reload_config().await?;
-                // After reload, keep running — loop back to wait for next
-                // signal. For simplicity in this phase, we stop after
-                // one HUP. A background task would replace this in Phase 2.
-                return self.stop().await;
-            }
+            _ = sigint.recv() => tracing::info!("received SIGINT, shutting down"),
+            _ = sigterm.recv() => tracing::info!("received SIGTERM, shutting down"),
+            _ = sighup.recv() => tracing::info!("received SIGHUP, shutting down"),
         }
 
-        self.stop().await
+        self.stop();
+        Ok(())
     }
 
-    /// Graceful shutdown with a timeout.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the shutdown grace period expires.
-    pub async fn stop(&mut self) -> Result<()> {
+    /// Stop the sub-agents and mark the agent stopped.
+    pub fn stop(&mut self) {
         if self.status != AgentStatus::Running {
             self.status = AgentStatus::Stopped;
-            return Ok(());
+            return;
         }
         tracing::info!("graceful shutdown started");
-
-        let shutdown = async {
-            if let Some(client) = self.client.as_mut() {
-                client.stop();
-            }
-            if let Some(server) = self.server.as_mut() {
-                server.stop();
-            }
-        };
-
-        if let Ok(()) = timeout(Duration::from_secs(30), shutdown).await {
-            self.status = AgentStatus::Stopped;
-            tracing::info!("graceful shutdown complete");
-            Ok(())
-        } else {
-            self.status = AgentStatus::Failed;
-            tracing::error!("graceful shutdown timed out after 30s");
-            Err(crate::error::Error::Runtime("shutdown timed out after 30s".to_owned()))
+        if let Some(client) = self.client.as_mut() {
+            client.stop();
         }
-    }
-
-    /// Reload configuration from the config file path.
-    #[allow(clippy::unused_async)]
-    async fn reload_config(&mut self) -> Result<()> {
-        tracing::info!("config reload triggered");
-        // TODO: re-read config file, merge env vars, merge CLI flags
-        Ok(())
+        if let Some(server) = self.server.as_mut() {
+            server.stop();
+        }
+        self.status = AgentStatus::Stopped;
+        tracing::info!("graceful shutdown complete");
     }
 }
