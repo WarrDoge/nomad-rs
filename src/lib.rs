@@ -7,6 +7,9 @@
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
+// winnow appears as two versions via cron (0.6.x) and toml (0.7.x) — no
+// semver-compatible upgrade path exists for its 0.6→0.7 jump.
+#![allow(clippy::multiple_crate_versions)]
 
 /// Nomad client configuration and lifecycle.
 pub mod client;

@@ -50,21 +50,19 @@ impl Constraint {
     /// Whether a node with the given `attributes` satisfies this constraint.
     #[must_use]
     pub fn satisfied_by(&self, attributes: &HashMap<String, String>) -> bool {
-        let attr_val = attributes.get(self.left.as_str()).map(String::as_str).unwrap_or("");
+        let attr_val = attributes.get(self.left.as_str()).map_or("", String::as_str);
         let right = self.right.as_str();
 
         match self.operand.as_str() {
-            "=" => attr_val == right,
+            "=" | "version" => attr_val == right,
             "!=" => attr_val != right,
             ">" => cmp_num(attr_val, right, |a, b| a > b),
             ">=" => cmp_num(attr_val, right, |a, b| a >= b),
             "<" => cmp_num(attr_val, right, |a, b| a < b),
             "<=" => cmp_num(attr_val, right, |a, b| a <= b),
             "regexp" => attr_val.contains(right.trim_matches('*')),
-            "version" => attr_val == right,
             "set_contains" => attr_val.split(',').any(|v| v.trim() == right),
-            "distinct_hosts" => true,
-            "distinct_property" => true,
+            "distinct_hosts" | "distinct_property" => true,
             _ => false,
         }
     }

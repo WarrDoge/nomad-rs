@@ -9,6 +9,8 @@
 #![deny(missing_docs)]
 // Startup errors need stderr output before logging init.
 #![allow(clippy::print_stderr)]
+// winnow appears as two versions via cron (0.6.x) and toml (0.7.x)
+#![allow(clippy::multiple_crate_versions)]
 
 use std::path::PathBuf;
 
