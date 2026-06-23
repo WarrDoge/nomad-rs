@@ -68,7 +68,6 @@ impl Default for Scheduler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::block_on;
 
     #[test]
     fn test_scheduler_new() {
@@ -83,30 +82,30 @@ mod tests {
         assert_eq!(scheduler.status(), SchedulerStatus::Initialized);
     }
 
-    #[test]
-    fn test_scheduler_run() {
+    #[tokio::test]
+    async fn test_scheduler_run() {
         let mut scheduler = Scheduler::new();
         assert_eq!(scheduler.status(), SchedulerStatus::Initialized);
-        let result = block_on(scheduler.run());
+        let result = scheduler.run().await;
         assert!(result.is_ok());
         assert!(scheduler.is_running());
         assert_eq!(scheduler.status(), SchedulerStatus::Running);
     }
 
-    #[test]
-    fn test_scheduler_run_idempotent() {
+    #[tokio::test]
+    async fn test_scheduler_run_idempotent() {
         let mut scheduler = Scheduler::new();
-        let _ = block_on(scheduler.run());
+        let _ = scheduler.run().await;
         assert!(scheduler.is_running());
-        let result = block_on(scheduler.run());
+        let result = scheduler.run().await;
         assert!(result.is_ok());
         assert!(scheduler.is_running());
     }
 
-    #[test]
-    fn test_scheduler_stop() {
+    #[tokio::test]
+    async fn test_scheduler_stop() {
         let mut scheduler = Scheduler::new();
-        let _ = block_on(scheduler.run());
+        let _ = scheduler.run().await;
         assert!(scheduler.is_running());
         scheduler.stop();
         assert_eq!(scheduler.status(), SchedulerStatus::Stopped);

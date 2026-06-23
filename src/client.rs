@@ -73,7 +73,6 @@ impl Client {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::block_on;
 
     fn test_config() -> Config {
         Config { node_name: "test-client".to_owned(), ..Config::default() }
@@ -94,30 +93,30 @@ mod tests {
         assert_eq!(client.config().node_name, "test-client");
     }
 
-    #[test]
-    fn test_client_run() {
+    #[tokio::test]
+    async fn test_client_run() {
         let mut client = Client::new(test_config());
         assert!(client.status() == ClientStatus::Initialized);
-        let result = block_on(client.run());
+        let result = client.run().await;
         assert!(result.is_ok());
         assert!(client.is_running());
         assert_eq!(client.status(), ClientStatus::Running);
     }
 
-    #[test]
-    fn test_client_run_idempotent() {
+    #[tokio::test]
+    async fn test_client_run_idempotent() {
         let mut client = Client::new(test_config());
-        let _ = block_on(client.run());
+        let _ = client.run().await;
         assert!(client.is_running());
-        let result = block_on(client.run());
+        let result = client.run().await;
         assert!(result.is_ok());
         assert!(client.is_running());
     }
 
-    #[test]
-    fn test_client_stop() {
+    #[tokio::test]
+    async fn test_client_stop() {
         let mut client = Client::new(test_config());
-        let _ = block_on(client.run());
+        let _ = client.run().await;
         assert!(client.is_running());
         client.stop();
         assert_eq!(client.status(), ClientStatus::Stopped);

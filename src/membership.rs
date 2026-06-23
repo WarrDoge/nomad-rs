@@ -1,11 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
-//! Cluster membership / gossip contract — dependency-agnostic.
+//! Cluster membership / gossip — dependency-agnostic.
 //!
-//! Tracks which servers are in the cluster and their liveness. The concrete
-//! gossip implementation (a `memberlist`/serf-style crate) lives behind
-//! [`Membership`](crate::membership::Membership). [`GossipMembership`](crate::membership::GossipMembership) is the in-tree implementation whose
-//! behaviour is specified by the tests and is unimplemented.
+//! Tracks which servers are in the cluster and their liveness. [`GossipMembership`](crate::membership::GossipMembership)
+//! is the in-tree implementation; a real gossip crate (`memberlist`/serf-style)
+//! replaces its bodies later. Behaviour is specified by the tests and is unimplemented.
 
 use crate::error::Result;
 
@@ -33,27 +32,6 @@ pub struct Member {
     pub status: MemberStatus,
 }
 
-/// Cluster membership operations.
-pub trait Membership {
-    /// Join the cluster by contacting one or more peer addresses; returns the
-    /// number of peers successfully reached.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if none of the peers could be reached.
-    fn join(&mut self, addrs: &[String]) -> Result<usize>;
-
-    /// The currently known members.
-    fn members(&self) -> Vec<Member>;
-
-    /// Gracefully leave the cluster.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the leave broadcast fails.
-    fn leave(&mut self) -> Result<()>;
-}
-
 /// The in-tree gossip-based membership.
 #[derive(Debug)]
 pub struct GossipMembership {
@@ -70,18 +48,30 @@ impl GossipMembership {
     }
 }
 
-impl Membership for GossipMembership {
-    fn join(&mut self, addrs: &[String]) -> Result<usize> {
-        let _ = addrs;
+impl GossipMembership {
+    /// Join the cluster by contacting one or more peer addresses; returns the
+    /// number of peers successfully reached.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if none of the peers could be reached.
+    pub fn join(&mut self, addrs: &[String]) -> Result<usize> {
         // TODO: contact peers with gossip protocol and merge member lists
         Ok(addrs.len())
     }
 
-    fn members(&self) -> Vec<Member> {
+    /// The currently known members.
+    #[must_use]
+    pub fn members(&self) -> Vec<Member> {
         vec![Member { name: self.name.clone(), addr: String::new(), status: MemberStatus::Alive }]
     }
 
-    fn leave(&mut self) -> Result<()> {
+    /// Gracefully leave the cluster.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the leave broadcast fails.
+    pub fn leave(&mut self) -> Result<()> {
         // TODO: broadcast intent to leave and drain
         Ok(())
     }

@@ -10,22 +10,21 @@ use nomad_rs::client::Client;
 use nomad_rs::config::Config;
 use nomad_rs::scheduler::Scheduler;
 use nomad_rs::server::Server;
-use nomad_rs::util::block_on;
 
-#[test]
-fn client_constructs_and_runs_to_ok() {
+#[tokio::test]
+async fn client_constructs_and_runs_to_ok() {
     let mut client = Client::new(Config::default());
-    assert!(block_on(client.run()).is_ok());
+    assert!(client.run().await.is_ok());
 }
 
-#[test]
-fn server_constructs_and_runs_to_ok() {
+#[tokio::test]
+async fn server_constructs_and_runs_to_ok() {
     let mut server = Server::new(Config::default());
-    assert!(block_on(server.run()).is_ok());
+    assert!(server.run().await.is_ok());
 }
 
-#[test]
-fn scheduler_runs_to_ok() {
+#[tokio::test]
+async fn scheduler_runs_to_ok() {
     let mut scheduler = Scheduler::new();
-    assert!(block_on(scheduler.run()).is_ok());
+    assert!(scheduler.run().await.is_ok());
 }

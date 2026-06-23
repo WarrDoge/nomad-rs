@@ -41,12 +41,9 @@ impl StateStore {
     ///
     /// # Errors
     ///
-    /// Returns [`crate::error::Error::Config`] if the job fails validation.
-    #[allow(clippy::needless_pass_by_value, reason = "the value is moved into storage once implemented")]
+    /// Returns [`crate::error::Error::Validation`] if the job fails validation.
     pub fn upsert_job(&mut self, job: Job) -> Result<()> {
-        if job.name.is_empty() {
-            return Err(crate::error::Error::Config("job name cannot be empty".to_owned()));
-        }
+        job.validate()?;
         self.jobs.insert(job.name.clone(), job);
         Ok(())
     }
@@ -79,8 +76,7 @@ impl StateStore {
     ///
     /// # Errors
     ///
-    /// Returns [`crate::error::Error::Config`] if the node fails validation.
-    #[allow(clippy::needless_pass_by_value, reason = "the value is moved into storage once implemented")]
+    /// Returns [`crate::error::Error::Validation`] if the node fails validation.
     pub fn upsert_node(&mut self, node: Node) -> Result<()> {
         node.validate()?;
         self.nodes.insert(node.id.clone(), node);
@@ -103,8 +99,7 @@ impl StateStore {
     ///
     /// # Errors
     ///
-    /// Returns [`crate::error::Error::Config`] if the allocation fails validation.
-    #[allow(clippy::needless_pass_by_value, reason = "the value is moved into storage once implemented")]
+    /// Returns [`crate::error::Error::Validation`] if the allocation fails validation.
     pub fn upsert_alloc(&mut self, alloc: Allocation) -> Result<()> {
         alloc.validate()?;
         self.allocs.insert(alloc.id.clone(), alloc);
@@ -127,8 +122,7 @@ impl StateStore {
     ///
     /// # Errors
     ///
-    /// Returns [`crate::error::Error::Config`] if the evaluation fails validation.
-    #[allow(clippy::needless_pass_by_value, reason = "the value is moved into storage once implemented")]
+    /// Returns [`crate::error::Error::Validation`] if the evaluation fails validation.
     pub fn upsert_eval(&mut self, eval: Evaluation) -> Result<()> {
         eval.validate()?;
         self.evals.insert(eval.id.clone(), eval);

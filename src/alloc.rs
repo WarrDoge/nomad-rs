@@ -94,8 +94,8 @@ impl Allocation {
     ///
     /// # Errors
     ///
-    /// Returns [`crate::error::Error::Config`] if `id`, `node_id`, `job_id`, or
-    /// `task_group` is empty, or if [`Resources`] are invalid.
+    /// Returns [`crate::error::Error::Validation`] if `id`, `node_id`, `job_id`,
+    /// or `task_group` is empty.
     pub fn validate(&self) -> Result<()> {
         if self.id.is_empty() {
             return Err(crate::error::Error::Validation("alloc id cannot be empty".to_owned()));

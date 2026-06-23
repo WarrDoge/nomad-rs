@@ -57,7 +57,6 @@ impl Fsm {
     ///
     /// Returns an error if the underlying [`StateStore`] operation rejects the
     /// command (e.g. validation failure, deleting a missing job).
-    #[allow(clippy::needless_pass_by_value, reason = "command is dispatched into a state op once implemented")]
     pub fn apply(&mut self, command: Command) -> Result<()> {
         match command {
             Command::UpsertJob(job) => self.state.upsert_job(job),

@@ -73,7 +73,6 @@ impl Server {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::util::block_on;
 
     fn test_config() -> Config {
         Config { node_name: "test-server".to_owned(), bind_addr: "0.0.0.0:4647".to_owned(), ..Config::default() }
@@ -94,30 +93,30 @@ mod tests {
         assert_eq!(server.config().bind_addr, "0.0.0.0:4647");
     }
 
-    #[test]
-    fn test_server_run() {
+    #[tokio::test]
+    async fn test_server_run() {
         let mut server = Server::new(test_config());
         assert_eq!(server.status(), ServerStatus::Initialized);
-        let result = block_on(server.run());
+        let result = server.run().await;
         assert!(result.is_ok());
         assert!(server.is_running());
         assert_eq!(server.status(), ServerStatus::Running);
     }
 
-    #[test]
-    fn test_server_run_idempotent() {
+    #[tokio::test]
+    async fn test_server_run_idempotent() {
         let mut server = Server::new(test_config());
-        let _ = block_on(server.run());
+        let _ = server.run().await;
         assert!(server.is_running());
-        let result = block_on(server.run());
+        let result = server.run().await;
         assert!(result.is_ok());
         assert!(server.is_running());
     }
 
-    #[test]
-    fn test_server_stop() {
+    #[tokio::test]
+    async fn test_server_stop() {
         let mut server = Server::new(test_config());
-        let _ = block_on(server.run());
+        let _ = server.run().await;
         assert!(server.is_running());
         server.stop();
         assert_eq!(server.status(), ServerStatus::Stopped);

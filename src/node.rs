@@ -77,8 +77,8 @@ impl Node {
     ///
     /// # Errors
     ///
-    /// Returns [`crate::error::Error::Config`] if `id`, `name`, or `datacenter`
-    /// is empty, or if advertised [`Resources`] are invalid.
+    /// Returns [`crate::error::Error::Validation`] if `id`, `name`, or
+    /// `datacenter` is empty.
     pub fn validate(&self) -> Result<()> {
         if self.id.is_empty() {
             return Err(crate::error::Error::Validation("node id cannot be empty".to_owned()));
