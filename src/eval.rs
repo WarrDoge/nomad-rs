@@ -99,8 +99,8 @@ impl Evaluation {
     ///
     /// # Errors
     ///
-    /// Returns [`crate::error::Error::Config`] if `id` or `job_id` is empty, or
-    /// if `priority` is outside the job priority range.
+    /// Returns [`crate::error::Error::Validation`] if `id` or `job_id` is empty,
+    /// or if `priority` is outside the job priority range.
     pub fn validate(&self) -> Result<()> {
         if self.id.is_empty() {
             return Err(crate::error::Error::Validation("eval id cannot be empty".to_owned()));
