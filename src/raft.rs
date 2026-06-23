@@ -60,13 +60,12 @@ impl RaftNode {
 
 impl Consensus for RaftNode {
     #[allow(clippy::needless_pass_by_value, reason = "command is appended to the log once implemented")]
-    fn propose(&mut self, command: Command) -> Result<()> {
-        let _ = command;
+    fn propose(&mut self, _command: Command) -> Result<()> {
         // Non-leader returns an error.
         if !self.is_leader() {
             return Err(crate::error::Error::Runtime("not the leader, cannot propose".to_owned()));
         }
-        // TODO: append the command to the replicated log and wait for commit
+        // TODO: append _command to the replicated log and wait for commit
         Err(crate::error::Error::Runtime("raft not yet connected".to_owned()))
     }
 

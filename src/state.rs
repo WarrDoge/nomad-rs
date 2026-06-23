@@ -61,10 +61,10 @@ impl StateStore {
     ///
     /// # Errors
     ///
-    /// Returns [`crate::error::Error::Config`] if no such job exists.
+    /// Returns [`crate::error::Error::Validation`] if no such job exists.
     pub fn delete_job(&mut self, name: &str) -> Result<()> {
         if self.jobs.remove(name).is_none() {
-            return Err(crate::error::Error::Config(format!("job '{name}' not found")));
+            return Err(crate::error::Error::Validation(format!("job '{name}' not found")));
         }
         Ok(())
     }
