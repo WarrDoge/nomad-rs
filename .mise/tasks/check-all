@@ -1,18 +1,17 @@
-#!/usr/bin/env bash
+#!/usr/bin/env nu
 # mise task: check-all
 # Run all checks: format, clippy, deny, test
-set -euo pipefail
 
-echo "=== cargo fmt (check) ==="
+print "=== cargo fmt (check) ==="
 cargo fmt --check
 
-echo "=== cargo clippy ==="
+print "=== cargo clippy ==="
 cargo clippy --all-targets --all-features
 
-echo "=== cargo check ==="
+print "=== cargo check ==="
 cargo check --all-targets --all-features
 
-echo "=== cargo test ==="
+print "=== cargo test ==="
 cargo test --all-targets --all-features
 
-echo "All checks passed."
+print "All checks passed."

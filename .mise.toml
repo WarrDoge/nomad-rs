@@ -6,6 +6,11 @@ rust = "1.96.0"
 
 # cargo-deny installed manually (not through mise)
 
+[settings]
+# Use nushell as the default shell for tasks (inline + shebang-less file tasks)
+unix_default_inline_shell_args = "nu -c"
+unix_default_file_shell_args = "nu"
+
 [env]
 RUSTFLAGS = "-D warnings"
 CARGO_REGISTRIES_CRATES_IO_PROTOCOL = "sparse"

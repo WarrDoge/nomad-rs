@@ -1,10 +1,9 @@
-#!/usr/bin/env bash
+#!/usr/bin/env nu
 # mise task: test
 # Run tests
-set -euo pipefail
 
-echo "=== cargo test ==="
+print "=== cargo test ==="
 cargo test --all-targets --all-features
 
-echo "=== cargo doc ==="
+print "=== cargo doc ==="
 cargo doc --no-deps --all-features
