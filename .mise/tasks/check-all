@@ -1,6 +1,6 @@
 #!/usr/bin/env nu
 # mise task: check-all
-# Run all checks: format, clippy, deny, test
+# Run all checks: format, clippy, check, test, doc (deny is its own task)
 
 print "=== cargo fmt (check) ==="
 cargo fmt --check
@@ -13,5 +13,8 @@ cargo check --all-targets --all-features
 
 print "=== cargo test ==="
 cargo test --all-targets --all-features
+
+print "=== cargo doc ==="
+cargo doc --no-deps --all-features
 
 print "All checks passed."

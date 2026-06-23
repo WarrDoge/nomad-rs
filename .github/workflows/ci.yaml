@@ -16,24 +16,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Reads channel + components from rust-toolchain.toml; includes cargo caching.
+      # Rust channel + clippy/rustfmt components from rust-toolchain.toml; includes cargo caching.
       - name: Install Rust toolchain
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
-      - name: cargo check
-        run: cargo check --all-targets
+      # mise provides nushell — the shell the task scripts run under — and the task runner.
+      - name: Install mise + tools
+        uses: jdx/mise-action@v2
 
-      - name: cargo test
-        run: cargo test
-
-      - name: cargo fmt --check
-        run: cargo fmt --all --check
-
-      - name: cargo clippy
-        run: cargo clippy --all-targets -- -D warnings
-
-      - name: cargo doc
-        run: cargo doc --no-deps --all-features
+      # Runs fmt, clippy, check, test, doc via the shared mise task (same as local dev).
+      - name: mise run check-all
+        run: mise run check-all
 
   deny:
     runs-on: ubuntu-latest
