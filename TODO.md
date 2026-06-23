@@ -7,14 +7,21 @@
 
 ## Test-spec status (TDD)
 
-Every subsystem is specified test-first: types are real, behaviour is `todo!()`,
-tests are **red** until implemented. Implementing a module = make its `todo!()`s
-satisfy its existing tests; no new test design needed. Infra layers are specced
-as **dependency-agnostic traits** — the concrete crate (raft, http, gossip,
-crypto, container runtime) is chosen at implementation time behind the trait.
+Every subsystem is specified test-first: types are real, behaviour is stubbed
+(returns defaults with a `// TODO:` marker), and the tests covering unbuilt
+behaviour are `#[ignore]`d until implemented. Implementing a module = drop the
+`#[ignore]`s and make the stub satisfy its existing tests; no new test design
+needed. Infra layers are specced as **dependency-agnostic traits** — the
+concrete crate (raft, http, gossip, crypto, container runtime) is chosen at
+implementation time behind the trait.
 
-Run `cargo test` to see the red list. Current: ~40 green (the modules below
-marked ✅), the rest red awaiting implementation.
+Run `cargo test` for the green count and `cargo test -- --ignored` for the
+pending list. Current: 64 green (the modules below marked ✅), 137 ignored
+awaiting implementation.
+
+> Note: stubs return `Ok(())`/defaults, not `todo!()`. A non-`#[ignore]`d test
+> can therefore pass against an empty stub — when un-ignoring a test, confirm it
+> actually exercises the new behaviour, not just the stub's default.
 
 **Job specification** — `jobspec` ✅, `constraint`, `service`, `update`,
 `reschedule`, `network`, `volume`, `template`, `scaling`, `periodic`,
@@ -37,11 +44,12 @@ marked ✅), the rest red awaiting implementation.
 
 **Still unspecced** (lower-priority breadth to add the same way): CSI volume
 plugin lifecycle, Consul/Vault integration internals, Sentinel/quota (ENT),
-event stream, autopilot. Each becomes a red module when reached.
+event stream, autopilot, multi-region federation, native Nomad service
+discovery (non-Consul). Each becomes an ignored module when reached.
 
 ---
 
-**Legend:** `[x]` implemented (green tests) · `[~]` specced (red tests, awaiting
+**Legend:** `[x]` implemented (green tests) · `[~]` specced (`#[ignore]`d tests, awaiting
 implementation) · `[ ]` not started.
 
 ---
@@ -80,11 +88,21 @@ implementation) · `[ ]` not started.
 
 ### Scheduling Engine
 - [~] Evaluation loop (dequeue + process) — `scheduler::Scheduler::{run,process_eval}`
+- [ ] Eval broker (priority dequeue, ack/nack, in-flight tracking) — distinct from the loop
+- [ ] Blocked-eval tracker (re-enqueue when capacity changes)
+- [ ] Plan queue + plan applier (serialize plans through the leader)
+- [ ] Scheduler types — service / batch / system / sysbatch (distinct placement logic)
+- [ ] Scheduler worker pool (concurrent eval processing)
 - [~] Feasibility checking (constraints, resources, affinities) — `scheduler::node_fits`, `constraint`
 - [ ] Ranking (bin packing, spread, scoring)
+- [ ] Preemption (evict lower-priority allocs to place higher)
 - [~] Allocation plan generation and apply — `scheduler::Plan`
 - [~] Periodic job handling — `periodic::PeriodicConfig`
 - [~] Parameterized / dispatch jobs — `dispatch::ParameterizedJob`
+
+### Server Background Jobs
+- [ ] Garbage collection — jobs, evals, allocs, nodes, deployments (`core_sched` equivalent)
+- [ ] Node heartbeat / TTL tracking + dead-node reaping (core leader loop, not just HA)
 
 ---
 
@@ -95,6 +113,7 @@ implementation) · `[ ]` not started.
 - [~] Restart policy implementation — `reschedule::RestartPolicy`, `taskrunner::handle_exit`
 - [~] Task health checking — `service::ServiceCheck`
 - [~] Artifact download (HTTP(S), S3, Git) — `artifact::Getter` trait
+- [ ] Client-side alloc garbage collection (disk pressure + terminal alloc cleanup)
 
 ### Drivers
 - [~] `exec` driver (fork/exec a process) — `driver::ExecDriver`
@@ -216,7 +235,7 @@ implementation) · `[ ]` not started.
 
 ## Phase 8: Testing & CI ◐
 
-- [~] Unit tests for every module — present as red specs; go green as modules are implemented
+- [~] Unit tests for every module — present as `#[ignore]`d specs; un-ignored as modules are implemented
 - [ ] Integration tests (multi-node cluster in process) — single-process smoke in `tests/lifecycle.rs`
 - [ ] Benchmarks for scheduler (O(1000) nodes × O(1000) jobs)
 - [ ] Property-based testing for state machine invariants
