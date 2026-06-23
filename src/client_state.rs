@@ -221,6 +221,13 @@ mod tests {
         let cs = state();
         cs.upsert_alloc(&test_alloc("a1")).unwrap();
         cs.set_task_state("a1", "web", TaskState::Running, 0).unwrap();
+        // Read back via raw SQL to verify the write was persisted.
+        let mut stmt = cs
+            .conn
+            .prepare("SELECT COUNT(*) FROM task_states WHERE alloc_id = ?1 AND task_name = ?2 AND state = ?3")
+            .unwrap();
+        let count: i64 = stmt.query_row(rusqlite::params!["a1", "web", "running"], |row| row.get(0)).unwrap();
+        assert_eq!(count, 1, "task state should be persisted");
     }
 
     #[test]
