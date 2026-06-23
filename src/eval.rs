@@ -103,13 +103,19 @@ impl Evaluation {
     /// if `priority` is outside the job priority range.
     pub fn validate(&self) -> Result<()> {
         if self.id.is_empty() {
-            return Err(crate::error::Error::Config("eval id cannot be empty".to_owned()));
+            return Err(crate::error::Error::Validation(
+                "eval id cannot be empty".to_owned(),
+            ));
         }
         if self.job_id.is_empty() {
-            return Err(crate::error::Error::Config("eval job_id cannot be empty".to_owned()));
+            return Err(crate::error::Error::Validation(
+                "eval job_id cannot be empty".to_owned(),
+            ));
         }
-        if !(crate::jobspec::JOB_MIN_PRIORITY..=crate::jobspec::JOB_MAX_PRIORITY).contains(&self.priority) {
-            return Err(crate::error::Error::Config(format!(
+        if !(crate::jobspec::JOB_MIN_PRIORITY..=crate::jobspec::JOB_MAX_PRIORITY)
+            .contains(&self.priority)
+        {
+            return Err(crate::error::Error::Validation(format!(
                 "priority {} out of range ({}-{})",
                 self.priority,
                 crate::jobspec::JOB_MIN_PRIORITY,

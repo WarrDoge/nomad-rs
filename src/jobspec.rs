@@ -105,7 +105,7 @@ impl Job {
         if self.name.is_empty() {
             return Err(Error::Validation("job name cannot be empty".into()));
         }
-        if self.priority < JOB_MIN_PRIORITY || self.priority > JOB_MAX_PRIORITY {
+        if !(JOB_MIN_PRIORITY..=JOB_MAX_PRIORITY).contains(&self.priority) {
             return Err(Error::Validation(format!(
                 "priority {} out of range [{}, {}]",
                 self.priority, JOB_MIN_PRIORITY, JOB_MAX_PRIORITY
@@ -113,6 +113,11 @@ impl Job {
         }
         if self.datacenters.is_empty() {
             return Err(Error::Validation("at least one datacenter is required".into()));
+        }
+        if self.datacenters.iter().any(String::is_empty) {
+            return Err(Error::Validation(
+                "datacenter names cannot be empty".into(),
+            ));
         }
         for tg in &self.task_groups {
             tg.validate()?;
@@ -126,7 +131,8 @@ impl TaskGroup {
     ///
     /// # Errors
     ///
-    /// Returns `Validation` if the group name is empty or count is negative.
+    /// Returns `Validation` if the group name is empty, count is negative,
+    /// the task list is empty, or tasks have duplicate names.
     pub fn validate(&self) -> Result<()> {
         if self.name.is_empty() {
             return Err(Error::Validation("task group name cannot be empty".into()));
@@ -137,7 +143,20 @@ impl TaskGroup {
                 self.name, self.count
             )));
         }
+        if self.tasks.is_empty() {
+            return Err(Error::Validation(format!(
+                "task group '{}' has no tasks",
+                self.name
+            )));
+        }
+        let mut seen = std::collections::HashSet::new();
         for task in &self.tasks {
+            if !seen.insert(&task.name) {
+                return Err(Error::Validation(format!(
+                    "duplicate task name '{}' in task group '{}'",
+                    task.name, self.name
+                )));
+            }
             task.validate()?;
         }
         Ok(())
@@ -165,6 +184,12 @@ impl Task {
 
 impl Resources {
     /// Validate that resource values are non-negative.
+    ///
+    /// # Notes
+    ///
+    /// Upstream Nomad enforces minimums — `MIN_CPU_MHZ = 1`, `MIN_MEMORY_MB = 10`.
+    /// This validator only rejects negatives, allowing zero for compatibility with
+    /// tests and partial specs. The scheduler layer should enforce upstream minimums.
     ///
     /// # Errors
     ///
