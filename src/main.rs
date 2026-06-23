@@ -9,6 +9,8 @@
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
+// Startup errors need stderr output before logging init.
+#![allow(clippy::print_stderr)]
 
 use std::path::PathBuf;
 
@@ -67,19 +69,20 @@ enum Command {
 
 #[tokio::main]
 async fn main() {
-    if let Err(e) = run().await {
-        // Use tracing if possible, fall back to eprint if the subscriber isn't set up
-        tracing::error!("fatal error: {e}");
-        std::process::exit(1);
-    }
-}
-
-/// Main entry point. Parses CLI args, builds config, runs the agent.
-async fn run() -> Result<()> {
     let cli = Cli::parse();
 
     // Build config: defaults → file → env vars → CLI flags
-    let config = if let Some(ref path) = cli.config_file { Config::from_file(path)? } else { Config::default() };
+    let config = match cli.config_file {
+        Some(ref path) => match Config::from_file(path) {
+            Ok(c) => c,
+            Err(e) => {
+                // No logging subsystem yet — eprintln before init
+                eprintln!("error: failed to load config: {e}");
+                std::process::exit(1);
+            },
+        },
+        None => Config::default(),
+    };
     let config = config.merge_env().merge_cli(
         cli.data_dir,
         cli.log_dir,
@@ -90,15 +93,23 @@ async fn run() -> Result<()> {
     );
 
     // Validate before starting
-    config.validate()?;
+    if let Err(e) = config.validate() {
+        eprintln!("error: invalid config: {e}");
+        std::process::exit(1);
+    }
 
-    // Setup logging
+    // Init logging subsystem now — all errors from here on are logged
     let _guard = nomad_rs::logging::init(&config);
 
-    // Determine mode
-    let mode = cli.command.unwrap_or(Command::Agent);
+    if let Err(e) = run(config, cli.command.unwrap_or(Command::Agent)).await {
+        tracing::error!("fatal error: {e}");
+        std::process::exit(1);
+    }
+}
 
-    match mode {
+/// Build and run the agent.
+async fn run(config: Config, command: Command) -> Result<()> {
+    match command {
         Command::Agent | Command::Client | Command::Server => {
             let mut agent = Agent::new(config);
             agent.run().await?;

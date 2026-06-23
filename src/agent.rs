@@ -65,12 +65,16 @@ impl Agent {
         self.status == AgentStatus::Running
     }
 
-    /// Reconfigure the agent from a new config. Sub-agents are dropped
-    /// and recreated on the next call to [`Agent::run`].
+    /// Reconfigure the agent from a new config. Sub-agents are stopped
+    /// before being replaced.
     pub fn reconfigure(&mut self, config: Config) {
         self.config = config;
-        self.client = None;
-        self.server = None;
+        if let Some(mut client) = self.client.take() {
+            client.stop();
+        }
+        if let Some(mut server) = self.server.take() {
+            server.stop();
+        }
         tracing::info!("agent reconfigured");
     }
 
