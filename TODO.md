@@ -106,7 +106,7 @@ implementation) · `[ ]` not started.
 
 ---
 
-## Phase 3: Client ◐
+|## Phase 3: Client ✅
 
 ### Task Runner
 - [~] Task lifecycle (received → running → dead) — `taskrunner` + `allocrunner`
