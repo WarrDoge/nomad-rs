@@ -31,7 +31,14 @@ workspace-default-features = "allow"
 external-default-features = "allow"
 # winnow is used by both cron (0.6.x) and toml (0.7.x) — separate major
 # versions with no semver-compatible upgrade path.
-skip = [{ name = "winnow", version = "*" }]
+skip = [
+    # winnow is used by both cron (0.6.x) and toml (0.7.x) — separate major
+    # versions with no semver-compatible upgrade path.
+    { name = "winnow", version = "*" },
+    # hashbrown is used by rusqlite's bundled build and by the hashbrown 0.17
+    # that tokio/libc/hashlink pull in — both are fine, just incompatible majors.
+    { name = "hashbrown" },
+]
 
 [sources]
 unknown-registry = "deny"
