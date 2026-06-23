@@ -2,8 +2,8 @@
 
 //! Persistent client-local state for allocations and task runners.
 //!
-//! Uses Turso's `libsql` (pure Rust SQLite rewrite via `rusqlite` with bundled
-//! sqlite3 — builds without any system C dependency) as the backing store. The
+//! Uses Turso/Limbo-style zero-C-dep SQLite via `rusqlite` with bundled
+//! sqlite3 — builds without any system C dependency as the local store. The
 //! schema tracks allocations assigned to this node and their task-runner states
 //! so that the client agent can recover after a restart.
 
