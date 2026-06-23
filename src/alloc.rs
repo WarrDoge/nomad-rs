@@ -10,7 +10,7 @@ use crate::error::Result;
 use crate::jobspec::Resources;
 
 /// Operator/scheduler intent for an allocation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DesiredStatus {
     /// The allocation should be running.
     Run,
@@ -33,7 +33,7 @@ impl DesiredStatus {
 }
 
 /// Last reported client-side status of an allocation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ClientStatus {
     /// Accepted but not yet started.
     Pending,
@@ -69,7 +69,7 @@ impl ClientStatus {
 }
 
 /// A task group instance placed on a node.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Allocation {
     /// Unique allocation identifier (UUID).
     pub id: String,

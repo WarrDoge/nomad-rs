@@ -9,6 +9,7 @@
 //! unimplemented.
 
 use std::collections::HashMap;
+use std::path::Path;
 
 use crate::alloc::Allocation;
 use crate::error::Result;
@@ -17,8 +18,7 @@ use crate::jobspec::Job;
 use crate::node::Node;
 
 /// The cluster's in-memory state: jobs, nodes, allocations, and evaluations.
-#[derive(Debug, Default)]
-#[allow(dead_code, reason = "fields are read once the state operations are implemented")]
+#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct StateStore {
     /// Jobs keyed by job name.
     jobs: HashMap<String, Job>,
@@ -134,16 +134,58 @@ impl StateStore {
     pub fn get_eval(&self, id: &str) -> Option<Evaluation> {
         self.evals.get(id).cloned()
     }
+
+    /// All evaluations currently stored.
+    #[must_use]
+    pub fn list_evals(&self) -> Vec<Evaluation> {
+        self.evals.values().cloned().collect()
+    }
+
+    /// Serialise the entire state store to a `JSON` file at `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an IO error if the file cannot be written, or a serialisation
+    /// error if the state cannot be encoded.
+    pub fn save(&self, path: impl AsRef<Path>) -> Result<()> {
+        let bytes = serde_json::to_vec(self)?;
+        std::fs::write(path, bytes)?;
+        Ok(())
+    }
+
+    /// Deserialise a previously saved state store from `path`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an IO error if the file cannot be read, or a deserialisation
+    /// error if the data is corrupt. All loaded entities are validated.
+    pub fn load(path: impl AsRef<Path>) -> Result<Self> {
+        let bytes = std::fs::read(path)?;
+        let store: Self = serde_json::from_slice(&bytes)?;
+        for job in store.jobs.values() {
+            job.validate()?;
+        }
+        for node in store.nodes.values() {
+            node.validate()?;
+        }
+        for alloc in store.allocs.values() {
+            alloc.validate()?;
+        }
+        for eval in store.evals.values() {
+            eval.validate()?;
+        }
+        Ok(store)
+    }
 }
 
 #[cfg(test)]
 #[allow(clippy::missing_docs_in_private_items, clippy::wildcard_imports, reason = "conventional inline test module")]
 mod tests {
     use super::*;
-    use crate::alloc::{Allocation, ClientStatus, DesiredStatus};
-    use crate::eval::{EvalStatus, EvalTrigger, Evaluation};
-    use crate::jobspec::{Job, Resources};
-    use crate::node::{Node, NodeStatus, SchedulingEligibility};
+    use crate::alloc::{ClientStatus, DesiredStatus};
+    use crate::eval::{EvalStatus, EvalTrigger};
+    use crate::jobspec::Resources;
+    use crate::node::{NodeStatus, SchedulingEligibility};
 
     fn job(name: &str) -> Job {
         Job { name: name.to_owned(), ..Job::default() }
@@ -262,5 +304,23 @@ mod tests {
         let mut s = StateStore::new();
         s.upsert_eval(eval("ev1")).unwrap();
         assert_eq!(s.get_eval("ev1").unwrap().id, "ev1");
+    }
+
+    #[test]
+    fn save_round_trips_all_data() {
+        let mut s = StateStore::new();
+        s.upsert_job(job("redis")).unwrap();
+        s.upsert_node(node("n1")).unwrap();
+        s.upsert_alloc(alloc("a1", "n1", "redis")).unwrap();
+        s.upsert_eval(eval("ev1")).unwrap();
+        let dir = std::env::temp_dir();
+        let path = dir.join("nomad_rs_test_state.json");
+        s.save(&path).unwrap();
+        let loaded = StateStore::load(&path).unwrap();
+        assert_eq!(loaded.list_jobs().len(), 1);
+        assert_eq!(loaded.list_nodes().len(), 1);
+        assert_eq!(loaded.allocs_by_node("n1").len(), 1);
+        assert_eq!(loaded.list_evals().len(), 1);
+        std::fs::remove_file(&path).ok();
     }
 }

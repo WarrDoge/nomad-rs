@@ -12,7 +12,7 @@ use crate::error::Result;
 use crate::jobspec::Resources;
 
 /// Lifecycle status of a node as tracked by the servers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum NodeStatus {
     /// Registering; not yet ready for work.
     Init,
@@ -39,7 +39,7 @@ impl NodeStatus {
 }
 
 /// Whether the scheduler may place new work on a node.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SchedulingEligibility {
     /// New allocations may be placed.
     Eligible,
@@ -48,7 +48,7 @@ pub enum SchedulingEligibility {
 }
 
 /// A client node advertised to the cluster.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Node {
     /// Unique node identifier (UUID).
     pub id: String,

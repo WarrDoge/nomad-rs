@@ -23,6 +23,10 @@ pub enum Error {
     #[error("toml parse error: {0}")]
     TomlParse(#[from] toml::de::Error),
 
+    /// A database error occurred.
+    #[error("database error: {0}")]
+    Database(#[from] rusqlite::Error),
+
     /// A configuration error occurred.
     #[error("config error: {0}")]
     Config(String),

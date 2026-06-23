@@ -20,7 +20,7 @@ pub const JOB_MIN_PRIORITY: i32 = 1;
 pub const JOB_MAX_PRIORITY: i32 = 100;
 
 /// A Nomad job represents a set of task groups that run on the cluster.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Job {
     /// Human-readable job name.
     pub name: String,
@@ -47,7 +47,7 @@ impl Default for Job {
 }
 
 /// A task group is a set of tasks that must be co-located on the same node.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TaskGroup {
     /// Group name.
     pub name: String,
@@ -58,7 +58,7 @@ pub struct TaskGroup {
 }
 
 /// A single unit of work within a task group.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Task {
     /// Task name.
     pub name: String,
@@ -71,7 +71,7 @@ pub struct Task {
 }
 
 /// Resource requirements for a task.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Resources {
     /// CPU MHz required.
     pub cpu_mhz: i32,

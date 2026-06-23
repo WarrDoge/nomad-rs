@@ -11,7 +11,7 @@
 use crate::error::Result;
 
 /// Why an evaluation was created (upstream `TriggeredBy`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum EvalTrigger {
     /// A job was registered or updated.
     JobRegister,
@@ -44,7 +44,7 @@ impl EvalTrigger {
 }
 
 /// Lifecycle status of an evaluation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum EvalStatus {
     /// Waiting on resources/another eval before it can run.
     Blocked,
@@ -80,7 +80,7 @@ impl EvalStatus {
 }
 
 /// A scheduler evaluation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Evaluation {
     /// Unique evaluation identifier (UUID).
     pub id: String,
