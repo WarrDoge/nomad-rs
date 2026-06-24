@@ -1,0 +1,19 @@
+name: audit
+on:
+  schedule:
+    - cron: '0 6 * * 1'  # every Monday 06:00 UTC
+  push:
+    branches: [main]
+    paths: ['Cargo.lock']
+  pull_request:
+    branches: [main]
+    paths: ['Cargo.lock']
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: cargo audit
+        run: cargo install cargo-audit --locked && cargo audit
