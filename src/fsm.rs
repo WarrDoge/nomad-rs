@@ -16,7 +16,7 @@ use crate::node::Node;
 use crate::state::StateStore;
 
 /// A committed state-change command — the payload of a Raft log entry.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Command {
     /// Register or update a job.
     UpsertJob(Job),

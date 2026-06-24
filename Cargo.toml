@@ -51,17 +51,34 @@ codegen-units = 1
 strip = true
 
 [dependencies]
+chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
+cron = "0.15"
+http = "1"
+opentelemetry = "0.28"
+opentelemetry-otlp = { version = "0.28", features = ["http-proto", "trace"] }
+opentelemetry_sdk = "0.28"
+regex = "1"
+rusqlite = { version = "0.34", features = ["bundled"] }
+rustls = "0.23"
+rustls-pemfile = "2"
+semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "sync", "macros", "time", "io-util", "signal"] }
+tokio-rustls = "0.26"
 toml = "0.8"
-cron = "0.15"
-chrono = "0.4"
-regex = "1"
-semver = "1"
-rusqlite = { version = "0.34", features = ["bundled"] }
+tower-http = { version = "0.6", features = ["cors", "tracing", "propagate-header"] }
 tracing = "0.1"
 tracing-appender = "0.2"
+tracing-opentelemetry = "0.29"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+x509-parser = "0.17"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "scheduler_bench"
+harness = false

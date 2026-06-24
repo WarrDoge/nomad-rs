@@ -53,6 +53,10 @@ pub mod alloc;
 /// Evaluations: the scheduler's unit of work.
 pub mod eval;
 
+/// Priority eval queue — the central point where evaluations wait to be
+/// picked up by a scheduler worker.
+pub mod eval_queue;
+
 /// In-memory cluster state store.
 pub mod state;
 
@@ -61,6 +65,9 @@ pub mod fsm;
 
 /// Consensus contract (Raft).
 pub mod raft;
+
+/// Disk-backed Raft log persistence (JSONL + snapshots).
+pub mod raft_log;
 
 /// RPC request/response contract.
 pub mod rpc;
@@ -130,3 +137,13 @@ pub mod logging;
 
 /// Client-local persistent state (SQLite-backed).
 pub mod client_state;
+
+/// OpenTelemetry tracing middleware.
+pub mod otel;
+
+/// mTLS configuration for transport security.
+pub mod tls;
+
+/// Integration test helpers (in-process cluster).
+#[cfg(test)]
+pub mod integration;

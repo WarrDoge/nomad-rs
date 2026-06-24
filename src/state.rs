@@ -18,7 +18,7 @@ use crate::jobspec::Job;
 use crate::node::Node;
 
 /// The cluster's in-memory state: jobs, nodes, allocations, and evaluations.
-#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Default, Clone, serde::Serialize, serde::Deserialize)]
 pub struct StateStore {
     /// Jobs keyed by job name.
     jobs: HashMap<String, Job>,
