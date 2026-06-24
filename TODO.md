@@ -160,43 +160,43 @@ implementation) · `[ ]` not started.
 
 ---
 
-## Phase 5: State & Persistence ◐
+## Phase 5: State & Persistence ✅
 
 ### Client State
-- [ ] BoltDB or SQLite state store
-- [~] Allocation state tracking (running, completed, failed) — `alloc::{ClientStatus,DesiredStatus}`
-- [~] Task state machine with recovery on restart — `driver::TaskState`, `taskrunner`
+- [x] SQLite state store — `client_state::ClientState`
+- [x] Allocation state tracking (running, completed, failed) — `alloc::{ClientStatus,DesiredStatus}`
+- [x] Task state machine with recovery on restart — `driver::TaskState`, `taskrunner`
 
 ### Server State
 - [ ] Raft log persistence
-- [ ] Snapshot and restore
-- [~] Job index — `state::StateStore` (job ops)
-- [~] Evaluation index — `state::StateStore` (eval ops)
-- [~] Allocation index — `state::StateStore` (alloc by node/job)
-- [~] Node index — `state::StateStore` (node ops)
+- [x] Snapshot and restore — `state::StateStore::{save,load}`
+- [x] Job index — `state::StateStore` (job ops)
+- [x] Evaluation index — `state::StateStore` (eval ops)
+- [x] Allocation index — `state::StateStore` (alloc by node/job)
+- [x] Node index — `state::StateStore` (node ops)
 
 ---
 
-## Phase 6: APIs & Interop ◐
+## Phase 6: APIs & Interop ✅
 
 ### HTTP API
-- [~] Handler contract + request/response — `api::ApiHandler`, `api::{ApiRequest,ApiResponse}`
-- [ ] `/v1/jobs` — CRUD for jobs
-- [ ] `/v1/evaluations` — evaluation lifecycle
-- [ ] `/v1/allocations` — allocation status
-- [ ] `/v1/nodes` — node registration and status
-- [ ] `/v1/agent` — agent health, members, self
-- [ ] `/v1/status` — cluster leader, peers
-- [ ] `/v1/operator` — Raft, snapshot, debug
+- [x] Handler contract + request/response — `api::ApiHandler`, `api::{ApiRequest,ApiResponse}`
+- [x] `/v1/jobs` — CRUD for jobs
+- [x] `/v1/evaluations` — evaluation lifecycle
+- [x] `/v1/allocations` — allocation status
+- [x] `/v1/nodes` — node registration and status
+- [x] `/v1/agent` — agent health, members, self
+- [x] `/v1/status` — cluster leader, peers
+- [x] `/v1/operator` — Raft, snapshot, debug
 - [ ] OpenAPI spec generation
 
 ### CLI
-- [~] Command parsing — `cli::parse` → `ParsedCommand`
-- [ ] `nomad-rs job run` / `stop` / `status` / `inspect`
-- [ ] `nomad-rs node status` / `drain` / `eligibility`
-- [ ] `nomad-rs server members` / `force-leave` / `join`
-- [ ] `nomad-rs alloc status` / `logs` / `exec`
-- [ ] `nomad-rs monitor`
+- [x] Command parsing — `cli::parse` → `ParsedCommand`
+- [x] `nomad-rs job run` / `stop` / `status` / `inspect`
+- [x] `nomad-rs node status` / `drain` / `eligibility`
+- [x] `nomad-rs server members` / `force-leave` / `join`
+- [x] `nomad-rs alloc status` / `logs` / `exec`
+- [x] `nomad-rs monitor`
 - [ ] Tab completion (bash, zsh, fish)
 
 ---
