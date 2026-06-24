@@ -55,12 +55,6 @@ impl ApiResponse {
         Self { status: 201, body: serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned()) }
     }
 
-    /// Build a 204 No Content response.
-    #[must_use]
-    pub fn no_content() -> Self {
-        Self { status: 204, body: String::new() }
-    }
-
     /// Build a 400 Bad Request response.
     #[must_use]
     pub fn bad_request(msg: &str) -> Self {

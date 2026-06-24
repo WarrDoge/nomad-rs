@@ -2,8 +2,7 @@
 
 //! Persistent client-local state for allocations and task runners.
 //!
-//! Uses Turso/Limbo-style zero-C-dep SQLite via `rusqlite` with bundled
-//! sqlite3 — builds without any system C dependency as the local store. The
+//! Uses `rusqlite` with bundled sqlite3 — no C dependency at runtime. The
 //! schema tracks allocations assigned to this node and their task-runner states
 //! so that the client agent can recover after a restart.
 
@@ -33,7 +32,8 @@ impl ClientState {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let conn = Connection::open(path)?;
         conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS allocations (
+            "PRAGMA foreign_keys = ON;
+            CREATE TABLE IF NOT EXISTS allocations (
                 id          TEXT PRIMARY KEY,
                 eval_id     TEXT NOT NULL,
                 node_id     TEXT NOT NULL,
