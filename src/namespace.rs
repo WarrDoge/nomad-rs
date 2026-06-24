@@ -24,7 +24,16 @@ impl Namespace {
     /// Returns [`crate::error::Error::Config`] if `name` is empty or contains
     /// characters outside `[a-z0-9-]`.
     pub fn validate(&self) -> Result<()> {
-        todo!("require a non-empty name matching [a-z0-9-]+")
+        if self.name.is_empty() {
+            return Err(crate::error::Error::Config("namespace name cannot be empty".to_owned()));
+        }
+        if !self.name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-') {
+            return Err(crate::error::Error::Config(format!(
+                "namespace '{}' contains invalid characters (only [a-z0-9-] allowed)",
+                self.name
+            )));
+        }
+        Ok(())
     }
 }
 
@@ -34,21 +43,18 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn default_namespace_passes() {
         let ns = Namespace { name: "default".to_owned(), description: String::new() };
         assert!(ns.validate().is_ok());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn rejects_empty_name() {
         let ns = Namespace { name: String::new(), description: String::new() };
         assert!(ns.validate().is_err());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn rejects_invalid_characters() {
         let ns = Namespace { name: "Prod Env".to_owned(), description: String::new() };
         assert!(ns.validate().is_err());

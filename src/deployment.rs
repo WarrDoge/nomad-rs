@@ -48,13 +48,25 @@ impl Deployment {
     /// Returns [`crate::error::Error::Config`] if `id`/`job_id` are empty or
     /// `healthy > placed`.
     pub fn validate(&self) -> Result<()> {
-        todo!("require ids and healthy <= placed")
+        if self.id.is_empty() {
+            return Err(crate::error::Error::Config("deployment id cannot be empty".to_owned()));
+        }
+        if self.job_id.is_empty() {
+            return Err(crate::error::Error::Config("deployment job_id cannot be empty".to_owned()));
+        }
+        if self.healthy > self.placed {
+            return Err(crate::error::Error::Config(format!(
+                "healthy ({}) exceeds placed ({})",
+                self.healthy, self.placed
+            )));
+        }
+        Ok(())
     }
 
     /// Whether canaries are all healthy and the deployment can be promoted.
     #[must_use]
     pub fn is_promotable(&self) -> bool {
-        todo!("true when healthy >= desired_canaries and canaries were requested")
+        self.desired_canaries > 0 && self.healthy >= self.desired_canaries
     }
 }
 
@@ -75,13 +87,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn valid_deployment_passes() {
         assert!(deployment().validate().is_ok());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn rejects_healthy_above_placed() {
         let mut d = deployment();
         d.healthy = 5;
@@ -89,13 +99,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn promotable_when_canaries_healthy() {
         assert!(deployment().is_promotable());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn not_promotable_when_canaries_unhealthy() {
         let mut d = deployment();
         d.healthy = 1;

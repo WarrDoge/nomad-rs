@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use crate::error::Result;
 
 /// A capability level on a resource.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Capability {
     /// May read the resource.
     Read,
@@ -51,7 +51,16 @@ impl Token {
     /// Returns [`crate::error::Error::Config`] if `accessor`/`secret` are empty,
     /// or a non-management token has no policies.
     pub fn validate(&self) -> Result<()> {
-        todo!("require accessor/secret and at least one policy unless management")
+        if self.accessor.is_empty() {
+            return Err(crate::error::Error::Config("token accessor cannot be empty".to_owned()));
+        }
+        if self.secret.is_empty() {
+            return Err(crate::error::Error::Config("token secret cannot be empty".to_owned()));
+        }
+        if !self.management && self.policies.is_empty() {
+            return Err(crate::error::Error::Config("non-management token requires at least one policy".to_owned()));
+        }
+        Ok(())
     }
 
     /// Whether this token grants `capability` on `resource`, resolving against
@@ -59,7 +68,20 @@ impl Token {
     /// [`Capability::Deny`] always wins.
     #[must_use]
     pub fn allows(&self, resource: &str, capability: Capability, policies: &[Policy]) -> bool {
-        todo!("management bypass, else resolve {capability:?} on {resource:?} over {} policies", policies.len())
+        if self.management {
+            return true;
+        }
+        for policy in policies {
+            if !self.policies.contains(&policy.name) {
+                continue;
+            }
+            match policy.rules.get(resource) {
+                Some(Capability::Deny) => return false,
+                Some(grant) if grant >= &capability => return true,
+                _ => {},
+            }
+        }
+        false
     }
 }
 
@@ -86,13 +108,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn valid_token_passes() {
         assert!(token().validate().is_ok());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn non_management_without_policies_errors() {
         let mut t = token();
         t.policies.clear();
@@ -100,19 +120,16 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn management_token_allows_anything() {
         assert!(management().allows("namespace:prod", Capability::Write, &[]));
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn policy_grants_write() {
         assert!(token().allows("namespace:default", Capability::Write, &[policy()]));
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn missing_grant_denies() {
         assert!(!token().allows("namespace:other", Capability::Write, &[policy()]));
     }

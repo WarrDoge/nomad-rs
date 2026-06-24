@@ -3,8 +3,7 @@
 //! Node drain orchestration.
 //!
 //! Draining migrates allocations off a node within a deadline. Mirrors the
-//! subset of upstream Nomad's drain spec plus a progress helper. Behaviour is
-//! specified by the tests and is unimplemented.
+//! subset of upstream Nomad's drain spec plus a progress helper.
 
 use crate::error::Result;
 
@@ -28,7 +27,10 @@ impl DrainSpec {
     /// Returns [`crate::error::Error::Config`] if `deadline_secs` is zero and
     /// `force` is false (a non-forced drain needs a deadline).
     pub fn validate(&self) -> Result<()> {
-        todo!("require a positive deadline unless force is set")
+        if !self.force && self.deadline_secs == 0 {
+            return Err(crate::error::Error::Config("non-forced drain requires a positive deadline".to_owned()));
+        }
+        Ok(())
     }
 }
 
@@ -44,7 +46,7 @@ pub struct DrainProgress {
 /// Compute drain progress from totals.
 #[must_use]
 pub fn drain_progress(total: u32, migrated: u32) -> DrainProgress {
-    todo!("remaining = total-migrated ({total}-{migrated}), complete when migrated>=total")
+    DrainProgress { remaining: total.saturating_sub(migrated), complete: migrated >= total }
 }
 
 #[cfg(test)]
@@ -53,34 +55,29 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn deadline_drain_passes() {
         let d = DrainSpec { deadline_secs: 60, force: false, ignore_system_jobs: true };
         assert!(d.validate().is_ok());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn zero_deadline_without_force_errors() {
         let d = DrainSpec { deadline_secs: 0, force: false, ignore_system_jobs: true };
         assert!(d.validate().is_err());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn forced_drain_needs_no_deadline() {
         let d = DrainSpec { deadline_secs: 0, force: true, ignore_system_jobs: true };
         assert!(d.validate().is_ok());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn progress_complete_when_all_migrated() {
         assert_eq!(drain_progress(5, 5), DrainProgress { remaining: 0, complete: true });
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn progress_counts_remaining() {
         assert_eq!(drain_progress(5, 2), DrainProgress { remaining: 3, complete: false });
     }

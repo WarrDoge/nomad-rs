@@ -32,7 +32,10 @@ pub struct Metric {
 
 /// A sink that retains samples in memory (for tests and the `/metrics` view).
 #[derive(Debug, Default)]
-pub struct InMemorySink;
+pub struct InMemorySink {
+    /// Retained metric samples.
+    samples: std::sync::Mutex<Vec<Metric>>,
+}
 
 impl InMemorySink {
     /// Emit one metric sample.
@@ -41,7 +44,17 @@ impl InMemorySink {
     ///
     /// Returns an error if the sample cannot be recorded/forwarded.
     pub fn emit(&self, metric: &Metric) -> Result<()> {
-        todo!("record sample {:?} in the in-memory ring", metric.key)
+        match self.samples.lock() {
+            Ok(mut guard) => guard.push(metric.clone()),
+            Err(_) => return Err(crate::error::Error::Runtime("metrics mutex poisoned".to_owned())),
+        }
+        Ok(())
+    }
+
+    /// Return all recorded samples.
+    #[must_use]
+    pub fn drain(&self) -> Vec<Metric> {
+        self.samples.lock().map_or_else(|_| vec![], |mut guard| guard.drain(..).collect())
     }
 }
 
@@ -51,9 +64,8 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn emits_a_counter() {
         let m = Metric { key: "nomad.evals".to_owned(), value: 1.0, kind: MetricKind::Counter };
-        assert!(InMemorySink.emit(&m).is_ok());
+        assert!(InMemorySink::default().emit(&m).is_ok());
     }
 }

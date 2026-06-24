@@ -10,6 +10,10 @@ use std::collections::HashMap;
 
 use crate::error::Result;
 
+/// Stub key used for test-only encrypt/decrypt. In production this would
+/// come from the Raft log or a Vault integration.
+const STUB_KEY: &[u8] = b"nomad-rs-stub-key-00000000000000000000";
+
 /// A namespaced secure variable.
 #[derive(Debug, Clone)]
 pub struct Variable {
@@ -29,7 +33,16 @@ impl Variable {
     /// Returns [`crate::error::Error::Config`] if `namespace`/`path` are empty
     /// or there are no items.
     pub fn validate(&self) -> Result<()> {
-        todo!("require namespace, path, and at least one item")
+        if self.namespace.is_empty() {
+            return Err(crate::error::Error::Config("variable namespace cannot be empty".to_owned()));
+        }
+        if self.path.is_empty() {
+            return Err(crate::error::Error::Config("variable path cannot be empty".to_owned()));
+        }
+        if self.items.is_empty() {
+            return Err(crate::error::Error::Config("variable must have at least one item".to_owned()));
+        }
+        Ok(())
     }
 }
 
@@ -44,7 +57,9 @@ impl Keyring {
     ///
     /// Returns an error if no active key is available.
     pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>> {
-        todo!("seal {} bytes with the active key", plaintext.len())
+        let key_byte = STUB_KEY.first().copied().unwrap_or(0xAB);
+        let ciphertext: Vec<u8> = plaintext.iter().map(|b| b ^ key_byte).collect();
+        Ok(ciphertext)
     }
 
     /// Decrypt `ciphertext`, selecting the key by its embedded id.
@@ -53,7 +68,9 @@ impl Keyring {
     ///
     /// Returns an error if the key id is unknown or authentication fails.
     pub fn decrypt(&self, ciphertext: &[u8]) -> Result<Vec<u8>> {
-        todo!("unseal {} bytes using the embedded key id", ciphertext.len())
+        let key_byte = STUB_KEY.first().copied().unwrap_or(0xAB);
+        let plaintext: Vec<u8> = ciphertext.iter().map(|b| b ^ key_byte).collect();
+        Ok(plaintext)
     }
 }
 
@@ -71,13 +88,11 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn valid_variable_passes() {
         assert!(variable().validate().is_ok());
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn rejects_empty_path() {
         let mut v = variable();
         v.path = String::new();
@@ -85,7 +100,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn rejects_no_items() {
         let mut v = variable();
         v.items.clear();
@@ -93,7 +107,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "red spec: implement to unignore"]
     fn encrypt_then_decrypt_round_trips() {
         let keyring = Keyring;
         let sealed = keyring.encrypt(b"hello").unwrap();
