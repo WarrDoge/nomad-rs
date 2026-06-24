@@ -1,0 +1,18 @@
+[package]
+name = "nomad-rs-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+nomad-rs = { path = ".." }
+libfuzzer-sys = "0.4"
+
+[[bin]]
+name = "validate_job"
+path = "fuzz_targets/validate_job.rs"
+test = false
+doc = false

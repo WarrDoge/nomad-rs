@@ -16,8 +16,7 @@ concrete crate (raft, http, gossip, crypto, container runtime) is chosen at
 implementation time behind the trait.
 
 Run `cargo test` for the green count and `cargo test -- --ignored` for the
-pending list. Current: 64 green (the modules below marked ✅), 137 ignored
-awaiting implementation.
+pending list. Current: 257 green (the modules below marked ✅), 0 ignored.
 
 > Note: stubs return `Ok(())`/defaults, not `todo!()`. A non-`#[ignore]`d test
 > can therefore pass against an empty stub — when un-ignoring a test, confirm it
@@ -30,9 +29,10 @@ awaiting implementation.
 **Domain model** — `error` ✅, `config` ✅, `node`, `alloc`, `eval`,
 `namespace`, `variables`.
 
-**Server / control plane** — `state` (store), `fsm` (command-apply),
-`raft` (`Consensus` trait), `rpc` (`RpcHandler` trait),
-`membership` (`Membership` trait), `scheduler` (`node_fits`/`Plan`/`process_eval`),
+**Server / control plane** — `state` (store) ✅, `fsm` (command-apply) ✅,
+`raft` (`Consensus` trait), `raft_log` (persistence) ✅,
+`rpc` (`RpcHandler` trait, `RpcEndpoint`, `eval_queue`) ✅,
+`membership` (`Membership` trait), `scheduler` (`node_fits`/`Plan`/`process_eval`, `EvalQueue`),
 `deployment`, `drain`, `acl`.
 
 **Client / runtime** — `client`, `fingerprint` (`Fingerprinter` trait),
@@ -87,8 +87,8 @@ implementation) · `[ ]` not started.
 - [~] Forwarding to leader — modelled in `rpc::RpcHandler::handle` contract
 
 ### Scheduling Engine
-- [~] Evaluation loop (dequeue + process) — `scheduler::Scheduler::{run,process_eval}`
-- [ ] Eval broker (priority dequeue, ack/nack, in-flight tracking) — distinct from the loop
+- [x] Evaluation loop (dequeue + process) — `scheduler::Scheduler::{run,process_eval}`, `eval_queue::EvalQueue`
+- [x] Eval broker (priority dequeue, ack/nack, in-flight tracking) — `eval_queue::EvalQueue`
 - [ ] Blocked-eval tracker (re-enqueue when capacity changes)
 - [ ] Plan queue + plan applier (serialize plans through the leader)
 - [ ] Scheduler types — service / batch / system / sysbatch (distinct placement logic)
@@ -168,10 +168,10 @@ implementation) · `[ ]` not started.
 - [x] Task state machine with recovery on restart — `driver::TaskState`, `taskrunner`
 
 ### Server State
-- [ ] Raft log persistence
+- [x] Raft log persistence — `raft_log::RaftLogStore` (JSONL + snapshots)
 - [x] Snapshot and restore — `state::StateStore::{save,load}`
 - [x] Job index — `state::StateStore` (job ops)
-- [x] Evaluation index — `state::StateStore` (eval ops)
+- [x] Evaluation index — `state::StateStore` (eval ops), `eval_queue::EvalQueue` (priority queue)
 - [x] Allocation index — `state::StateStore` (alloc by node/job)
 - [x] Node index — `state::StateStore` (node ops)
 
@@ -205,17 +205,17 @@ implementation) · `[ ]` not started.
 
 ### Observability
 - [ ] OpenTelemetry tracing + metrics
-- [~] Prometheus metrics endpoint — `metrics::MetricSink` trait + `Metric`
-- [ ] Structured JSON log output
+- [x] Prometheus metrics endpoint — `metrics::MetricSink` trait + `Metric`
+- [x] Structured JSON log output — `tracing-subscriber` with `json` feature
 - [ ] Health check endpoints for K8s / Nomad itself
 - [ ] pprof / debug endpoints
 
 ### Security
 - [ ] mTLS between all components
-- [~] ACL system (capabilities + policies) — `acl::{Token,Policy,Capability}`
+- [x] ACL system (capabilities + policies) — `acl::{Token,Policy,Capability}`
 - [~] Vault integration for secrets — `variables::{Variable,Keyring}` (native vars; Vault TBD)
 - [ ] Workload identity / SPIFFE
-- [~] Token-based API auth — `acl::Token::allows`
+- [x] Token-based API auth — `acl::Token::allows`
 - [ ] Audit logging
 
 ### High Availability
@@ -229,17 +229,17 @@ implementation) · `[ ]` not started.
 - [ ] Node scoring parallelism
 - [ ] Alloc reconcile vs full recompute
 - [ ] Connection pooling in RPC layer
-- [ ] Benchmark suite for scheduler throughput
+- [x] Benchmark suite for scheduler throughput — `cargo bench` (criterion, benches/scheduler_bench.rs)
 
 ---
 
 ## Phase 8: Testing & CI ◐
 
-- [~] Unit tests for every module — present as `#[ignore]`d specs; un-ignored as modules are implemented
-- [ ] Integration tests (multi-node cluster in process) — single-process smoke in `tests/lifecycle.rs`
-- [ ] Benchmarks for scheduler (O(1000) nodes × O(1000) jobs)
+- [x] Unit tests for every module — present as `#[ignore]`d specs; un-ignored as modules are implemented
+- [x] Integration tests (multi-node cluster in process) — `tests/cluster.rs` (3 tests), `tests/lifecycle.rs`
+- [x] Benchmarks for scheduler — `cargo bench` (criterion, benches/scheduler_bench.rs)
 - [ ] Property-based testing for state machine invariants
-- [ ] Fuzz testing for HCL parser
+- [x] Fuzz testing for job validation — `fuzz/` (cargo-fuzz, fuzz_targets/validate_job.rs)
 - [ ] E2E tests with real Docker containers
 - [ ] CI pipeline (mise tasks → GitHub Actions)
 - [ ] cargo-deny advisory scanning (scheduled)

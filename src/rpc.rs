@@ -67,14 +67,13 @@ impl RpcEndpoint {
         match request {
             Request::JobRegister(job) => {
                 job.validate()?;
-                // Generate a deterministic eval ID for the test spec
+                // Generate a timestamped eval ID for the test spec.
+                // NOTE: ID is not deterministic — it includes a nanosecond
+                // timestamp. Tests should not assert on its value.
                 let eval_id = format!(
                     "eval-{}-{}",
                     job.name,
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_nanos()
+                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos()
                 );
                 let eval = Evaluation {
                     id: eval_id.clone(),
@@ -88,16 +87,20 @@ impl RpcEndpoint {
                 // propagate the error.
                 self.eval_queue.enqueue(eval)?;
                 Ok(Response::JobRegistered { eval_id })
-            }
+            },
             Request::JobDeregister(_) => {
                 // TODO: forward to leader, deregister, create eval
                 Ok(Response::Ack)
-            }
+            },
             Request::NodeRegister(_) => Ok(Response::Ack),
             Request::EvalDequeue { schedulers: _ } => {
-                // TODO: filter by scheduler type once types are modelled
-                Ok(Response::Eval(self.eval_queue.dequeue()))
-            }
+                // Only one scheduler type exists at this stage (service), so
+                // the type filter is a no-op. Once batch/system/sysbatch types
+                // land, filter self.eval_queue.dequeue() by the requested
+                // schedulers BEFORE popping from the heap — otherwise the
+                // wrong scheduler type burns an eval meant for another.
+                Ok(Response::Eval(self.eval_queue.dequeue()?))
+            },
         }
     }
 }
@@ -130,13 +133,10 @@ mod tests {
         let ep = RpcEndpoint::new(q.clone());
         let job = Job { name: "web".to_owned(), ..Job::default() };
         let resp = ep.handle(Request::JobRegister(job)).unwrap();
-        let eval_id = match resp {
-            Response::JobRegistered { eval_id } => eval_id,
-            _ => panic!("expected JobRegistered"),
-        };
+        let Response::JobRegistered { eval_id } = resp else { panic!("expected JobRegistered") };
         assert!(!eval_id.is_empty());
         // The eval queue now has a pending eval; dequeue it.
-        let dequeued = q.dequeue().unwrap();
+        let dequeued = q.dequeue().unwrap().unwrap();
         assert_eq!(dequeued.id, eval_id);
         assert_eq!(dequeued.job_id, "web");
         assert_eq!(dequeued.status, EvalStatus::Pending);
@@ -152,9 +152,9 @@ mod tests {
         ep.handle(Request::JobRegister(low)).unwrap();
         ep.handle(Request::JobRegister(high)).unwrap();
         // Dequeue should yield the high-priority eval first.
-        let first = q.dequeue().unwrap();
+        let first = q.dequeue().unwrap().unwrap();
         assert_eq!(first.job_id, "high");
-        let second = q.dequeue().unwrap();
+        let second = q.dequeue().unwrap().unwrap();
         assert_eq!(second.job_id, "low");
     }
 

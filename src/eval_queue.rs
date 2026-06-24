@@ -44,7 +44,7 @@ impl Ord for PendingEval {
         // and for equal priorities the oldest (lowest seq) first.
         match self.eval.priority.cmp(&other.eval.priority) {
             Ordering::Equal => other.seq.cmp(&self.seq), // lower seq = older = higher
-            other => other, // higher priority = higher
+            other => other,                              // higher priority = higher
         }
     }
 }
@@ -90,7 +90,7 @@ impl EvalQueue {
                 inner.next_seq += 1;
                 inner.heap.push(PendingEval { seq, eval });
                 Ok(())
-            }
+            },
             Err(_) => Err(crate::error::Error::Runtime("eval queue mutex poisoned".to_owned())),
         }
     }
@@ -98,16 +98,29 @@ impl EvalQueue {
     /// Dequeue the highest-priority pending evaluation, if any.
     ///
     /// Returns `None` when the queue is empty.
-    #[must_use]
-    pub fn dequeue(&self) -> Option<Evaluation> {
-        let mut inner = self.inner.lock().ok()?;
-        inner.heap.pop().map(|pe| pe.eval)
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the internal mutex is poisoned.
+    pub fn dequeue(&self) -> Result<Option<Evaluation>> {
+        match self.inner.lock() {
+            Ok(mut inner) => Ok(inner.heap.pop().map(|pe| pe.eval)),
+            Err(_) => Err(crate::error::Error::Runtime("eval queue mutex poisoned".to_owned())),
+        }
     }
 
     /// The number of evaluations currently waiting.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.inner.lock().map_or(0, |g| g.heap.len())
+        match self.inner.lock() {
+            Ok(g) => g.heap.len(),
+            Err(_) => {
+                // Mutex poison: system is hosed, return 0 as a lie rather
+                // than a poison panic. The poison will surface on the next
+                // enqueue/dequeue call that propagates the error.
+                0
+            },
+        }
     }
 
     /// Whether the queue is empty.
@@ -126,7 +139,12 @@ impl Default for EvalQueue {
 // ---- tests -----------------------------------------------------------------
 
 #[cfg(test)]
-#[allow(clippy::missing_docs_in_private_items, clippy::wildcard_imports, reason = "conventional inline test module")]
+#[allow(
+    clippy::missing_docs_in_private_items,
+    clippy::wildcard_imports,
+    clippy::unwrap_used,
+    reason = "conventional inline test module"
+)]
 mod tests {
     use super::*;
     use crate::eval::EvalStatus;
@@ -164,10 +182,10 @@ mod tests {
         q.enqueue(pending_eval("high", 80)).unwrap();
         q.enqueue(pending_eval("mid", 50)).unwrap();
 
-        assert_eq!(q.dequeue().unwrap().id, "high");
-        assert_eq!(q.dequeue().unwrap().id, "mid");
-        assert_eq!(q.dequeue().unwrap().id, "low");
-        assert!(q.dequeue().is_none());
+        assert_eq!(q.dequeue().unwrap().unwrap().id, "high");
+        assert_eq!(q.dequeue().unwrap().unwrap().id, "mid");
+        assert_eq!(q.dequeue().unwrap().unwrap().id, "low");
+        assert!(q.dequeue().unwrap().is_none());
     }
 
     #[test]
@@ -177,15 +195,15 @@ mod tests {
         q.enqueue(pending_eval("second", 50)).unwrap();
         q.enqueue(pending_eval("third", 50)).unwrap();
 
-        assert_eq!(q.dequeue().unwrap().id, "first");
-        assert_eq!(q.dequeue().unwrap().id, "second");
-        assert_eq!(q.dequeue().unwrap().id, "third");
+        assert_eq!(q.dequeue().unwrap().unwrap().id, "first");
+        assert_eq!(q.dequeue().unwrap().unwrap().id, "second");
+        assert_eq!(q.dequeue().unwrap().unwrap().id, "third");
     }
 
     #[test]
     fn dequeue_empty_returns_none() {
         let q: EvalQueue = EvalQueue::new();
-        assert!(q.dequeue().is_none());
+        assert!(q.dequeue().unwrap().is_none());
     }
 
     #[test]
@@ -194,7 +212,7 @@ mod tests {
         q1.enqueue(pending_eval("e1", 50)).unwrap();
 
         let q2 = q1.clone();
-        assert_eq!(q2.dequeue().unwrap().id, "e1");
+        assert_eq!(q2.dequeue().unwrap().unwrap().id, "e1");
         assert!(q1.is_empty());
     }
 
@@ -207,7 +225,7 @@ mod tests {
         q.enqueue(pending_eval("d", 50)).unwrap();
 
         let mut ids = Vec::new();
-        while let Some(eval) = q.dequeue() {
+        while let Some(eval) = q.dequeue().unwrap() {
             ids.push(eval.id);
         }
         assert_eq!(ids, &["b", "d", "a", "c"]);
