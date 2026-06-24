@@ -106,6 +106,18 @@ impl StateStore {
         Ok(())
     }
 
+    /// Fetch a clone of the allocation with id `id`, if present.
+    #[must_use]
+    pub fn get_alloc(&self, id: &str) -> Option<Allocation> {
+        self.allocs.get(id).cloned()
+    }
+
+    /// All allocations currently stored.
+    #[must_use]
+    pub fn list_allocs(&self) -> Vec<Allocation> {
+        self.allocs.values().cloned().collect()
+    }
+
     /// All allocations placed on the node with id `node_id`.
     #[must_use]
     pub fn allocs_by_node(&self, node_id: &str) -> Vec<Allocation> {
