@@ -89,7 +89,14 @@ impl RpcEndpoint {
                 Ok(Response::JobRegistered { eval_id })
             },
             Request::JobDeregister(_) => {
-                // TODO: forward to leader, deregister, create eval
+                // TODO: forward to leader, deregister, create eval.
+                // Deferred because deregister needs a Raft round-trip to
+                // remove the job from state first, then enqueue the eval
+                // for scheduler cleanup. At this stage (single-node, no
+                // Raft persistence) the state mutation exists but the
+                // commit-then-enqueue ordering is not wired. The gap
+                // means a deregistered job won't produce a cleanup eval
+                // until the leader loop is implemented.
                 Ok(Response::Ack)
             },
             Request::NodeRegister(_) => Ok(Response::Ack),
