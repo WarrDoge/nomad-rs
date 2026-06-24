@@ -8,7 +8,8 @@
 //! its body later. Behaviour is specified by the tests and is unimplemented.
 
 use crate::error::Result;
-use crate::eval::Evaluation;
+use crate::eval::{EvalStatus, EvalTrigger, Evaluation};
+use crate::eval_queue::EvalQueue;
 use crate::jobspec::Job;
 use crate::node::Node;
 
@@ -44,9 +45,18 @@ pub enum Response {
 
 /// The in-tree RPC handler.
 #[derive(Debug)]
-pub struct RpcEndpoint;
+pub struct RpcEndpoint {
+    /// Priority eval queue shared with the scheduler loop.
+    eval_queue: EvalQueue,
+}
 
 impl RpcEndpoint {
+    /// Create an endpoint wired to the given eval queue.
+    #[must_use]
+    pub fn new(eval_queue: EvalQueue) -> Self {
+        Self { eval_queue }
+    }
+
     /// Handle a request and produce a response.
     ///
     /// # Errors
@@ -56,25 +66,38 @@ impl RpcEndpoint {
     pub fn handle(&self, request: Request) -> Result<Response> {
         match request {
             Request::JobRegister(job) => {
-                // TODO: forward to leader via Raft, persist state
                 job.validate()?;
                 // Generate a deterministic eval ID for the test spec
                 let eval_id = format!(
                     "eval-{}-{}",
                     job.name,
-                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos()
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_nanos()
                 );
+                let eval = Evaluation {
+                    id: eval_id.clone(),
+                    job_id: job.name.clone(),
+                    priority: job.priority,
+                    trigger: EvalTrigger::JobRegister,
+                    status: EvalStatus::Pending,
+                };
+                // Enqueue a pending eval so a scheduler worker can pick it up.
+                // If the queue mutex is poisoned the system is hosed anyway, so
+                // propagate the error.
+                self.eval_queue.enqueue(eval)?;
                 Ok(Response::JobRegistered { eval_id })
-            },
+            }
             Request::JobDeregister(_) => {
                 // TODO: forward to leader, deregister, create eval
                 Ok(Response::Ack)
-            },
+            }
             Request::NodeRegister(_) => Ok(Response::Ack),
             Request::EvalDequeue { schedulers: _ } => {
-                // TODO: dequeue pending eval for matching scheduler types
-                Ok(Response::Eval(None))
-            },
+                // TODO: filter by scheduler type once types are modelled
+                Ok(Response::Eval(self.eval_queue.dequeue()))
+            }
         }
     }
 }
@@ -86,14 +109,61 @@ mod tests {
 
     #[test]
     fn job_register_returns_eval_id() {
+        let q = EvalQueue::new();
+        let ep = RpcEndpoint::new(q);
         let job = Job { name: "redis".to_owned(), ..Job::default() };
-        let resp = RpcEndpoint.handle(Request::JobRegister(job)).unwrap();
+        let resp = ep.handle(Request::JobRegister(job)).unwrap();
         assert!(matches!(resp, Response::JobRegistered { .. }));
     }
 
     #[test]
     fn eval_dequeue_returns_eval_variant() {
+        let q = EvalQueue::new();
+        let ep = RpcEndpoint::new(q);
         let req = Request::EvalDequeue { schedulers: vec!["service".to_owned()] };
-        assert!(matches!(RpcEndpoint.handle(req).unwrap(), Response::Eval(_)));
+        assert!(matches!(ep.handle(req).unwrap(), Response::Eval(_)));
+    }
+
+    #[test]
+    fn job_register_enqueues_and_dequeue_returns_it() {
+        let q = EvalQueue::new();
+        let ep = RpcEndpoint::new(q.clone());
+        let job = Job { name: "web".to_owned(), ..Job::default() };
+        let resp = ep.handle(Request::JobRegister(job)).unwrap();
+        let eval_id = match resp {
+            Response::JobRegistered { eval_id } => eval_id,
+            _ => panic!("expected JobRegistered"),
+        };
+        assert!(!eval_id.is_empty());
+        // The eval queue now has a pending eval; dequeue it.
+        let dequeued = q.dequeue().unwrap();
+        assert_eq!(dequeued.id, eval_id);
+        assert_eq!(dequeued.job_id, "web");
+        assert_eq!(dequeued.status, EvalStatus::Pending);
+    }
+
+    #[test]
+    fn dequeue_returns_highest_priority_first() {
+        let q = EvalQueue::new();
+        let ep = RpcEndpoint::new(q.clone());
+        // Register a low-priority job, then a high-priority job.
+        let low = Job { name: "low".to_owned(), priority: 30, ..Job::default() };
+        let high = Job { name: "high".to_owned(), priority: 80, ..Job::default() };
+        ep.handle(Request::JobRegister(low)).unwrap();
+        ep.handle(Request::JobRegister(high)).unwrap();
+        // Dequeue should yield the high-priority eval first.
+        let first = q.dequeue().unwrap();
+        assert_eq!(first.job_id, "high");
+        let second = q.dequeue().unwrap();
+        assert_eq!(second.job_id, "low");
+    }
+
+    #[test]
+    fn empty_dequeue_returns_none() {
+        let q = EvalQueue::new();
+        let ep = RpcEndpoint::new(q);
+        let req = Request::EvalDequeue { schedulers: vec!["service".to_owned()] };
+        let resp = ep.handle(req).unwrap();
+        assert!(matches!(resp, Response::Eval(None)));
     }
 }

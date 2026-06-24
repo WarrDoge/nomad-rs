@@ -53,6 +53,10 @@ pub mod alloc;
 /// Evaluations: the scheduler's unit of work.
 pub mod eval;
 
+/// Priority eval queue — the central point where evaluations wait to be
+/// picked up by a scheduler worker.
+pub mod eval_queue;
+
 /// In-memory cluster state store.
 pub mod state;
 
