@@ -7,11 +7,16 @@
 //! within the same priority level.
 
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
-use std::sync::Arc;
+use std::collections::{BinaryHeap, HashMap};
+use std::sync::{Arc, MutexGuard};
 
 use crate::error::Result;
 use crate::eval::Evaluation;
+
+/// Maximum number of times an eval is delivered before a `nack` drops it
+/// instead of re-enqueuing (upstream Nomad's `MAX_DEQUEUE`, default 3). Guards
+/// against an eval that crashes every worker looping forever.
+const MAX_DEQUEUE: u32 = 3;
 
 /// A pending evaluation wrapper that orders by priority (high first) then by
 /// insertion order (FIFO for equal priorities).
@@ -22,6 +27,10 @@ struct PendingEval {
     seq: u64,
     /// The evaluation.
     eval: Evaluation,
+    /// How many times this eval has been handed out via `dequeue`. Carried
+    /// across `nack` re-enqueues so the delivery cap is enforced. Does not
+    /// affect ordering.
+    dequeues: u32,
 }
 
 impl Eq for PendingEval {}
@@ -56,12 +65,25 @@ struct Inner {
     heap: BinaryHeap<PendingEval>,
     /// Monotonically increasing insertion counter.
     next_seq: u64,
+    /// Evals handed out by `dequeue` but not yet `ack`ed, keyed by eval id.
+    /// A `nack` re-enqueues from here; an `ack` drops the entry.
+    in_flight: HashMap<String, PendingEval>,
+    /// Evals parked because nothing can place them yet (no capacity). Moved
+    /// back to `heap` wholesale by `unblock_all` when the cluster changes.
+    blocked: Vec<Evaluation>,
 }
 
 /// A thread-safe priority queue for pending evaluations.
 ///
 /// Queue order is descending by priority.  Equal-priority evals are returned
 /// FIFO (first enqueued, first out).
+///
+/// **Mutex-poison policy:** mutating methods (`enqueue`/`dequeue`/`ack`/`nack`/
+/// `block`/`unblock_all`) surface a poisoned mutex as `Err` so callers can
+/// react. The `usize` introspection helpers (`len`/`in_flight_len`/
+/// `blocked_len`) cannot return `Result` without changing their contract, so
+/// they report `0` on poison; the poison still surfaces on the next mutating
+/// call.
 #[derive(Debug, Clone)]
 pub struct EvalQueue {
     /// Shared mutable state behind a mutex.
@@ -72,7 +94,19 @@ impl EvalQueue {
     /// Create a new empty eval queue.
     #[must_use]
     pub fn new() -> Self {
-        Self { inner: Arc::new(std::sync::Mutex::new(Inner { heap: BinaryHeap::new(), next_seq: 0 })) }
+        Self {
+            inner: Arc::new(std::sync::Mutex::new(Inner {
+                heap: BinaryHeap::new(),
+                next_seq: 0,
+                in_flight: HashMap::new(),
+                blocked: Vec::new(),
+            })),
+        }
+    }
+
+    /// Lock the inner state, mapping a poisoned mutex to a runtime error.
+    fn lock(&self) -> Result<MutexGuard<'_, Inner>> {
+        self.inner.lock().map_err(|_| crate::error::Error::Runtime("eval queue mutex poisoned".to_owned()))
     }
 
     /// Push an evaluation onto the queue.
@@ -84,18 +118,16 @@ impl EvalQueue {
     ///
     /// Returns an error if the internal mutex is poisoned.
     pub fn enqueue(&self, eval: Evaluation) -> Result<()> {
-        match self.inner.lock() {
-            Ok(mut inner) => {
-                let seq = inner.next_seq;
-                inner.next_seq += 1;
-                inner.heap.push(PendingEval { seq, eval });
-                Ok(())
-            },
-            Err(_) => Err(crate::error::Error::Runtime("eval queue mutex poisoned".to_owned())),
-        }
+        let mut inner = self.lock()?;
+        let seq = inner.next_seq;
+        inner.next_seq += 1;
+        inner.heap.push(PendingEval { seq, eval, dequeues: 0 });
+        Ok(())
     }
 
-    /// Dequeue the highest-priority pending evaluation, if any.
+    /// Dequeue the highest-priority pending evaluation, if any, and move it into
+    /// the in-flight set. The caller must later [`EvalQueue::ack`] it on success
+    /// or [`EvalQueue::nack`] it on failure (or the entry lingers until then).
     ///
     /// Returns `None` when the queue is empty.
     ///
@@ -103,10 +135,88 @@ impl EvalQueue {
     ///
     /// Returns an error if the internal mutex is poisoned.
     pub fn dequeue(&self) -> Result<Option<Evaluation>> {
-        match self.inner.lock() {
-            Ok(mut inner) => Ok(inner.heap.pop().map(|pe| pe.eval)),
-            Err(_) => Err(crate::error::Error::Runtime("eval queue mutex poisoned".to_owned())),
+        let mut inner = self.lock()?;
+        let Some(mut pe) = inner.heap.pop() else { return Ok(None) };
+        pe.dequeues += 1;
+        let eval = pe.eval.clone();
+        inner.in_flight.insert(eval.id.clone(), pe);
+        Ok(Some(eval))
+    }
+
+    /// Acknowledge an in-flight eval as processed, removing it for good.
+    /// Unknown ids are a no-op (the eval was already acked or never in flight).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the internal mutex is poisoned.
+    pub fn ack(&self, eval_id: &str) -> Result<()> {
+        self.lock()?.in_flight.remove(eval_id);
+        Ok(())
+    }
+
+    /// Negatively acknowledge an in-flight eval: re-enqueue it for another
+    /// attempt, unless it has already been delivered `MAX_DEQUEUE` times, in
+    /// which case it is dropped (treated as failed). Unknown ids are a no-op.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the internal mutex is poisoned.
+    pub fn nack(&self, eval_id: &str) -> Result<()> {
+        let mut inner = self.lock()?;
+        if let Some(pe) = inner.in_flight.remove(eval_id) {
+            if pe.dequeues < MAX_DEQUEUE {
+                let seq = inner.next_seq;
+                inner.next_seq += 1;
+                // Fresh seq: re-delivered after the current backlog, not ahead of it.
+                inner.heap.push(PendingEval { seq, eval: pe.eval, dequeues: pe.dequeues });
+            }
         }
+        Ok(())
+    }
+
+    /// The number of evals dequeued but not yet acked.
+    #[must_use]
+    pub fn in_flight_len(&self) -> usize {
+        // 0 on poison; see the struct-level mutex-poison policy.
+        self.lock().map_or(0, |g| g.in_flight.len())
+    }
+
+    /// Park an eval as blocked: it cannot be placed until the cluster changes
+    /// (e.g. capacity frees up). Held out of the pending heap until
+    /// [`EvalQueue::unblock_all`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the internal mutex is poisoned.
+    pub fn block(&self, eval: Evaluation) -> Result<()> {
+        self.lock()?.blocked.push(eval);
+        Ok(())
+    }
+
+    /// Re-enqueue every blocked eval onto the pending heap; returns how many
+    /// were moved. Call when cluster state changes (node join/update) may have
+    /// unblocked placement.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the internal mutex is poisoned.
+    pub fn unblock_all(&self) -> Result<usize> {
+        let mut inner = self.lock()?;
+        let drained: Vec<Evaluation> = inner.blocked.drain(..).collect();
+        let moved = drained.len();
+        for eval in drained {
+            let seq = inner.next_seq;
+            inner.next_seq += 1;
+            inner.heap.push(PendingEval { seq, eval, dequeues: 0 });
+        }
+        Ok(moved)
+    }
+
+    /// The number of blocked evals waiting for [`EvalQueue::unblock_all`].
+    #[must_use]
+    pub fn blocked_len(&self) -> usize {
+        // 0 on poison; see the struct-level mutex-poison policy.
+        self.lock().map_or(0, |g| g.blocked.len())
     }
 
     /// The number of evaluations currently waiting.
@@ -214,6 +324,71 @@ mod tests {
         let q2 = q1.clone();
         assert_eq!(q2.dequeue().unwrap().unwrap().id, "e1");
         assert!(q1.is_empty());
+    }
+
+    #[test]
+    fn dequeue_moves_eval_in_flight() {
+        let q = EvalQueue::new();
+        q.enqueue(pending_eval("e1", 50)).unwrap();
+        let e = q.dequeue().unwrap().unwrap();
+        assert_eq!(e.id, "e1");
+        assert_eq!(q.len(), 0, "off the pending heap");
+        assert_eq!(q.in_flight_len(), 1, "now in flight, awaiting ack");
+    }
+
+    #[test]
+    fn ack_clears_in_flight() {
+        let q = EvalQueue::new();
+        q.enqueue(pending_eval("e1", 50)).unwrap();
+        q.dequeue().unwrap().unwrap();
+        q.ack("e1").unwrap();
+        assert_eq!(q.in_flight_len(), 0);
+    }
+
+    #[test]
+    fn ack_unknown_id_is_noop() {
+        let q = EvalQueue::new();
+        assert!(q.ack("nope").is_ok());
+        assert_eq!(q.in_flight_len(), 0);
+    }
+
+    #[test]
+    fn nack_re_enqueues_for_redelivery() {
+        let q = EvalQueue::new();
+        q.enqueue(pending_eval("e1", 50)).unwrap();
+        q.dequeue().unwrap().unwrap();
+        q.nack("e1").unwrap();
+        assert_eq!(q.in_flight_len(), 0, "left in-flight");
+        assert_eq!(q.len(), 1, "back on the pending heap");
+        assert_eq!(q.dequeue().unwrap().unwrap().id, "e1", "redelivered");
+    }
+
+    #[test]
+    fn nack_drops_eval_after_max_deliveries() {
+        let q = EvalQueue::new();
+        q.enqueue(pending_eval("e1", 50)).unwrap();
+        // Deliver-and-nack MAX_DEQUEUE times; the last nack must drop it.
+        for _ in 0..MAX_DEQUEUE {
+            assert_eq!(q.dequeue().unwrap().unwrap().id, "e1");
+            q.nack("e1").unwrap();
+        }
+        assert_eq!(q.len(), 0, "exceeded delivery cap, not re-enqueued");
+        assert_eq!(q.in_flight_len(), 0);
+        assert!(q.dequeue().unwrap().is_none());
+    }
+
+    #[test]
+    fn block_holds_out_of_pending_until_unblock() {
+        let q = EvalQueue::new();
+        q.block(pending_eval("b1", 50)).unwrap();
+        assert_eq!(q.blocked_len(), 1);
+        assert_eq!(q.len(), 0, "blocked evals are not pending");
+
+        let moved = q.unblock_all().unwrap();
+        assert_eq!(moved, 1);
+        assert_eq!(q.blocked_len(), 0);
+        assert_eq!(q.len(), 1, "now pending");
+        assert_eq!(q.dequeue().unwrap().unwrap().id, "b1");
     }
 
     #[test]

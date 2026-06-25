@@ -5,76 +5,39 @@
 
 ---
 
-## Status (verified against source, 2026-06-25)
+## Status (2026-06-25)
 
-`cargo test`: **292 pass, 0 ignored.** Green count is NOT a proxy for
-"implemented" — stubs return `Ok(())`/defaults (no `todo!()`), so a passing
-test can be exercising an empty stub. The classification below reflects what
-the **code actually does**, not what compiles.
+`cargo test`: **305 pass, 0 ignored.** Green count is not a proxy for
+"implemented" — stubs return `Ok(())`/defaults, so a passing test can exercise
+an empty stub. When implementing a stub, confirm the test asserts real
+behaviour, not the stub default.
 
-> When implementing a stub: confirm the existing test exercises real behaviour,
-> not the stub default. Add assertions if it doesn't.
+Orchestrator core is wired end-to-end (single node, in process): job registered
+via `rpc` → committed through single-node `raft` into `fsm`/`state` → `eval`
+enqueued → drained by the `server` scheduler worker → `process_eval` placement →
+committed back through raft → `ack`. `RpcServer`/`RpcClient` move requests over
+TCP (length-prefixed JSON); `membership` gossips via SWIM-lite over UDP; the
+`exec` driver runs real child processes (`taskrunner`/`allocrunner` drive it).
 
-### ✅ Real (genuine logic + meaningful tests)
+Still empty/partial: `client::run` (no loop yet), `raw_exec`/`docker` drivers
+(fake handle), `artifact::Getter`, `otel` export.
 
-- **Persistence/domain core:** `state` (HashMap store), `fsm` (Command→apply),
-  `eval_queue` (BinaryHeap priority enqueue/dequeue), `raft_log` (JSONL +
-  snapshots), `client_state` (real rusqlite/SQLite store), `error`, `config`.
-- **Job spec + domain types** (real validation/matching): `jobspec`,
-  `constraint` (operator matching incl regexp/version), `reschedule`
-  (RestartPolicy), `service`, `update`, `network`, `volume`, `template`,
-  `scaling`, `periodic`, `dispatch`, `node`, `alloc`, `eval`, `namespace`,
-  `variables`, `deployment`, `drain`.
-- **Edge:** `api` (real method/path routing → handlers), `cli` (`parse` →
-  `ParsedCommand`), `acl` (token/policy/capability checks).
-- **Infra:** `tls`, `integration` (glue), `logging`, `fingerprint`, `metrics`
-  (`MetricSink` trait).
+### Real backlog (priority order)
 
-### ⛔ Stub only (signature + passing-against-stub test, no behaviour)
-
-- **Orchestrator core — `scheduler::process_eval` now real** (capacity-aware
-  first-fit → `Plan`), and `scheduler::drain_queue` dequeues + applies. `raft`
-  is single-node (bootstrap leader, propose→commit→FSM; no replication yet).
-  `rpc::RpcEndpoint` commits writes through Raft + reports `NotLeader` (no wire
-  transport yet). Still stub: `server::run`, `client::run`, `membership`
-  (gossip unimpl), `agent::run`.
-- **Drivers — `exec` real and wired** (spawns a child process, kill/inspect);
-  `taskrunner`/`allocrunner` now drive it end to end. `raw_exec` + `docker`
-  still return a fake `TaskHandle`; `artifact` (`Getter`) still a stub.
-- `otel` (tracing/metrics export unimpl).
-
-### Corrections vs prior TODO
-
-- `scheduler::{node_fits, Plan, process_eval}` — now **implemented** (resource
-  feasibility + capacity-aware first-fit placement). Ranking/constraints/affinity
-  not yet applied.
-- `eval_queue` has **no ack/nack/in-flight tracking** — priority enqueue/
-  dequeue only.
-
-### Missing for a working orchestrator (real backlog, priority order)
-
-1. ~~`scheduler::process_eval`~~ ✅ done. Next: ranking (bin-pack/spread) +
-   wire `constraint`/`Affinity` into `node_fits`.
-2. ~~Plan apply~~ ✅ done — `scheduler::{apply_plan, process_and_apply,
-   drain_queue}` commit placements via `fsm` and drain an `EvalQueue` in one
-   pass. Remaining: async `scheduler::run` worker + plan routing through the
-   Raft leader (folded into #8).
-3. ~~Real `driver` exec + runner wiring~~ ✅ done. `ExecDriver` (`std::process`,
-   pid handle, kill/try_wait); `taskrunner` start/poll/stop via driver;
-   `allocrunner` drives one runner per task. Next: isolation (cgroups/
-   namespaces, Linux), `raw_exec`/`docker` real backends, live status rollup +
-   restart-policy supervision.
-4. ~~`raft` append + commit, wire `fsm`~~ ✅ single-node: `RaftNode::bootstrap`
-   leads, `propose` appends → commits → applies to FSM (quorum=1). Next:
-   multi-node replication + election (pick `raft-rs`), persist log via
-   `raft_log`.
-5. ~~`rpc` leader-forward~~ ✅ `RpcEndpoint` commits writes through `RaftNode`
-   (job/node land in FSM state), follower returns `Response::NotLeader`. Next:
-   real wire transport (custom-over-mTLS / gRPC) + actually forwarding to the
-   leader addr instead of just reporting it.
-6. `membership` gossip (pick `memberlist`).
-7. `eval_queue` ack/nack/in-flight + blocked-eval re-enqueue.
-8. `server`/`client`/`agent` run-loops that tie the above together.
+1. **Ranking** — bin-pack/spread scoring + wire `constraint`/`Affinity` into
+   `scheduler::node_fits` (first-fit only today).
+2. **Multi-node raft** — replication + election (pick `raft-rs`); persist log via
+   `raft_log`. Unblocks a real cluster.
+3. **mTLS + cluster wiring** — wrap the RPC stream in `tls::TlsConfig` →
+   `tokio-rustls`; bind a listener in `Server::run`; `client::run` loop that
+   dials a server via `RpcClient` and runs allocs; client auto-forward on
+   `NotLeader{leader_addr}`.
+4. **Driver depth** — isolation (cgroups/namespaces, Linux); real `raw_exec`/
+   `docker` backends; live status rollup + restart-policy supervision.
+5. **Membership failure detection** — periodic ping/ack (Suspect→Failed),
+   indirect probes, self-refutation.
+6. **Server housekeeping** — eval visibility-timeout reaping; auto `unblock_all`
+   on node change; heartbeat/TTL dead-node reaping; GC (jobs/evals/allocs/nodes).
 
 **Still unspecced:** CSI volume plugin lifecycle, Consul/Vault internals,
 Sentinel/quota (ENT), event stream, autopilot, multi-region federation, native
@@ -109,20 +72,20 @@ specced, behaviour stubbed · `[ ]` not started.
 
 ### Consensus & Cluster Membership
 - [~] Raft consensus — `raft::RaftNode` single-node bootstrap (propose→commit→apply to FSM, quorum=1). Multi-node replication via `raft-rs` still TBD
-- [~] Serf gossip protocol for cluster membership (or `memberlist` crate) — `membership::Membership` trait
+- [x] Gossip protocol for cluster membership — `membership::GossipMembership` (Apache-clean SWIM-lite over tokio UDP: push-pull join, gossip leave, incarnation merge). Failure detection (ping/ack, Suspect→Failed) TBD
 - [~] Leader election — `raft::RaftNode::{role,is_leader,bootstrap}`; real election TBD
 - [~] Cluster state machine (jobs, evaluations, allocations) — `fsm` + `state`
 
 ### RPC Layer
 - [ ] mTLS transport
-- [~] RPC server (custom protocol over mTLS) — `rpc::RpcEndpoint` req/resp commits writes via Raft and dequeues evals; wire transport TBD
-- [ ] RPC client for node-to-server communication
-- [x] Forwarding to leader — `rpc::RpcEndpoint` commits via `RaftNode`; follower returns `Response::NotLeader { leader_addr }`. Actual cross-node forward needs the transport
+- [x] RPC server — `rpc::RpcServer` accepts TCP conns, dispatches framed `Request`s through `RpcEndpoint`, writes `Response`s. mTLS wrap (`tls::TlsConfig`) TBD
+- [x] RPC client for node-to-server communication — `rpc::RpcClient::{connect,call}` over the same length-prefixed JSON framing
+- [x] Forwarding to leader — `rpc::RpcEndpoint` commits via `RaftNode`; follower returns `Response::NotLeader { leader_addr }`. Client auto-redial of the leader addr TBD
 
 ### Scheduling Engine
-- [x] Evaluation loop (dequeue + process) — `scheduler::drain_queue` dequeues an `EvalQueue` → `process_eval` → `apply_plan` (one synchronous pass). Async worker loop + leader leasing still TBD (#8). `eval_queue::EvalQueue` real
-- [~] Eval broker — `eval_queue::EvalQueue` does priority enqueue/dequeue only. ack/nack + in-flight tracking NOT implemented
-- [ ] Blocked-eval tracker (re-enqueue when capacity changes)
+- [x] Evaluation loop (dequeue + process) — `server::scheduler_worker` async background loop: leader-gated dequeue → `process_eval` → commit plan via `raft.propose` → ack/nack (started/stopped by `Server::run`/`stop`). `scheduler::drain_queue` keeps the synchronous one-pass variant. `eval_queue::EvalQueue` real
+- [x] Eval broker — `eval_queue::EvalQueue`: priority enqueue/dequeue + ack/nack/in-flight (`MAX_DEQUEUE=3` delivery cap). Visibility-timeout reaping of dead-worker evals TBD
+- [x] Blocked-eval tracker — `eval_queue::{block,unblock_all,blocked_len}` park evals + bulk re-enqueue. Auto-trigger on node capacity change TBD (needs #8 worker)
 - [ ] Plan queue + plan applier (serialize plans through the leader)
 - [ ] Scheduler types — service / batch / system / sysbatch (distinct placement logic)
 - [ ] Scheduler worker pool (concurrent eval processing)
