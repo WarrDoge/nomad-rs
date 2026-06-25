@@ -110,7 +110,7 @@ specced, behaviour stubbed · `[ ]` not started.
 
 ### Task Runner
 - [x] Task lifecycle (received → running → dead) — `taskrunner` drives a real `ExecDriver` (start/poll/stop); `allocrunner` spawns one `TaskRunner` per task, `run`/`destroy` start/stop them + `refresh_status` rolls live task states up (`Failed` on any task crash, else `Complete` when all exit). Restart-policy supervision still TBD
-- [~] Restart policy implementation — `reschedule::RestartPolicy`, `taskrunner::handle_exit`
+- [x] Restart policy implementation — `taskrunner::handle_exit` enforces `RestartPolicy::attempts` (restart under cap, `Failed` once exhausted). Sliding `interval_secs` window + `delay_secs`/`RestartMode::Delay` timing TBD (no clock yet)
 - [~] Task health checking — `service::ServiceCheck`
 - [~] Artifact download (HTTP(S), S3, Git) — `artifact::Getter` trait
 - [ ] Client-side alloc garbage collection (disk pressure + terminal alloc cleanup)
