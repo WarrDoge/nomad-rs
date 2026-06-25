@@ -59,7 +59,7 @@ pub enum EvalStatus {
 }
 
 impl EvalStatus {
-    /// Lowercase wire string, e.g. [`EvalStatus::Pending`] is `"pending"`.
+    /// Lowercase wire string, e.g. `EvalStatus::Pending` is `"pending"`.
     #[must_use]
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -120,7 +120,7 @@ impl Evaluation {
     }
 
     /// Whether the evaluation is ready to be dequeued and processed: status is
-    /// [`EvalStatus::Pending`].
+    /// `EvalStatus::Pending`.
     #[must_use]
     pub fn is_schedulable(&self) -> bool {
         self.status == EvalStatus::Pending

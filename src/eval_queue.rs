@@ -78,7 +78,7 @@ impl EvalQueue {
     /// Push an evaluation onto the queue.
     ///
     /// The caller should have validated the eval and set its status to
-    /// [`EvalStatus::Pending`] before enqueuing.
+    /// `EvalStatus::Pending` before enqueuing.
     ///
     /// # Errors
     ///
