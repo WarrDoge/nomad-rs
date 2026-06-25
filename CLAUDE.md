@@ -174,6 +174,11 @@ fn allocs_on(node_id: &NodeId, job_id: &JobId) -> Vec<Allocation> { /* ... */ }
 allocs_on(&alloc.job_id, &alloc.node_id);  // error[E0308]: expected `NodeId`, found `JobId`
 ```
 
+Newtype the *identifiers*, not the labels. `Job.name`, `task_group`, and `Node.name` stay
+plain `String` — they are human-readable display values, not cross-referenced keys, so only
+`JobId`/`NodeId`/`AllocId`/`EvalId` get the newtype. Wrapping every `String` is the
+over-application this guide otherwise warns against (§6).
+
 Give a newtype just enough surface to keep call sites clean — here `as_str`, `is_empty`,
 `From<&str>`, `Display`, `Borrow<str>` (so `HashMap<NodeId, _>` is queryable by `&str`),
 `PartialEq<&str>`. Do **not** add `Deref<Target = str>`; that quietly defeats the type.
