@@ -55,6 +55,11 @@ fn fits(avail: Resources, need: Resources) -> bool {
     avail.cpu_mhz >= need.cpu_mhz && avail.memory_mb >= need.memory_mb && avail.network_mbps >= need.network_mbps
 }
 
+/// Whether `node`'s attributes satisfy every hard constraint on `group`.
+fn meets_constraints(node: &Node, group: &TaskGroup) -> bool {
+    group.constraints.iter().all(|c| c.satisfied_by(&node.attributes))
+}
+
 /// Process one evaluation into a [`Plan`]: place each instance of each task
 /// group on the first node that still has room, decrementing that node's
 /// running free capacity as allocations are added so a node is never
@@ -79,8 +84,10 @@ pub fn process_eval(eval: &Evaluation, state: &StateStore) -> Plan {
     for group in &job.task_groups {
         let need = group_demand(group);
         for _ in 0..group.count.max(0) {
-            let Some((node, avail)) = free.iter_mut().find(|(_, avail)| fits(*avail, need)) else {
-                break; // no node has room for another instance
+            let Some((node, avail)) =
+                free.iter_mut().find(|(node, avail)| fits(*avail, need) && meets_constraints(node, group))
+            else {
+                break; // no node has room and satisfies constraints
             };
             plan.allocs.push(Allocation {
                 id: format!("{}-{}", eval.id, plan.allocs.len()),
@@ -300,7 +307,7 @@ mod tests {
         };
         Job {
             name: name.to_owned(),
-            task_groups: vec![TaskGroup { name: group.to_owned(), count: 1, tasks: vec![task] }],
+            task_groups: vec![TaskGroup { name: group.to_owned(), count: 1, tasks: vec![task], constraints: vec![] }],
             ..Job::default()
         }
     }
@@ -478,6 +485,40 @@ mod tests {
         state.upsert_job(job).unwrap();
         let plan = process_eval(&eval_for("web"), &state);
         assert!(plan.allocs.is_empty());
+    }
+
+    #[test]
+    fn process_eval_skips_node_failing_constraint() {
+        use crate::constraint::Constraint;
+        let mut state = StateStore::new();
+        let mut node = node_with("win1", 1000, 1024);
+        node.attributes.insert("os".to_owned(), "windows".to_owned());
+        state.upsert_node(node).unwrap();
+        let mut job = job_with("web", "g1", 100, 128);
+        job.task_groups[0].constraints =
+            vec![Constraint { left: "os".to_owned(), right: "linux".to_owned(), operand: "=".to_owned() }];
+        state.upsert_job(job).unwrap();
+        let plan = process_eval(&eval_for("web"), &state);
+        assert!(plan.allocs.is_empty(), "windows node fails os=linux constraint");
+    }
+
+    #[test]
+    fn process_eval_steers_to_constraint_satisfying_node() {
+        use crate::constraint::Constraint;
+        let mut state = StateStore::new();
+        let mut win = node_with("win1", 1000, 1024);
+        win.attributes.insert("os".to_owned(), "windows".to_owned());
+        let mut lin = node_with("lin1", 1000, 1024);
+        lin.attributes.insert("os".to_owned(), "linux".to_owned());
+        state.upsert_node(win).unwrap();
+        state.upsert_node(lin).unwrap();
+        let mut job = job_with("web", "g1", 100, 128);
+        job.task_groups[0].constraints =
+            vec![Constraint { left: "os".to_owned(), right: "linux".to_owned(), operand: "=".to_owned() }];
+        state.upsert_job(job).unwrap();
+        let plan = process_eval(&eval_for("web"), &state);
+        assert_eq!(plan.allocs.len(), 1);
+        assert_eq!(plan.allocs[0].node_id, "lin1", "placed only on the linux node");
     }
 
     #[test]

@@ -24,8 +24,9 @@ Still empty/partial: `client::run` (no loop yet), `raw_exec`/`docker` drivers
 
 ### Real backlog (priority order)
 
-1. **Ranking** — bin-pack/spread scoring + wire `constraint`/`Affinity` into
-   `scheduler::node_fits` (first-fit only today).
+1. **Ranking** — bin-pack/spread scoring + wire `Affinity` into placement
+   (first-fit only today). Hard `Constraint`s now filter candidates in
+   `process_eval`; scoring/affinity still TBD.
 2. **Multi-node raft** — replication + election (pick `raft-rs`); persist log via
    `raft_log`. Unblocks a real cluster.
 3. **mTLS + cluster wiring** — wrap the RPC stream in `tls::TlsConfig` →
@@ -89,7 +90,7 @@ specced, behaviour stubbed · `[ ]` not started.
 - [ ] Plan queue + plan applier (serialize plans through the leader)
 - [ ] Scheduler types — service / batch / system / sysbatch (distinct placement logic)
 - [ ] Scheduler worker pool (concurrent eval processing)
-- [x] Feasibility checking (resources) — `scheduler::node_fits` real: ready/eligible/not-draining + cpu/mem fit after subtracting live allocs. Affinities/constraints not yet wired in
+- [x] Feasibility checking (resources) — `scheduler::node_fits` real: ready/eligible/not-draining + cpu/mem fit after subtracting live allocs + hard `Constraint`s (`TaskGroup.constraints` filtered via `satisfied_by`). Affinities not yet wired in
 - [ ] Ranking (bin packing, spread, scoring)
 - [ ] Preemption (evict lower-priority allocs to place higher)
 - [x] Allocation plan generation and apply — `scheduler::Plan` + `process_eval` (gen) + `apply_plan`/`process_and_apply`/`drain_queue` (apply via `fsm`). Leader/Raft routing still TBD
@@ -139,7 +140,7 @@ specced, behaviour stubbed · `[ ]` not started.
 
 ### Supported Job Features
 - [x] Task groups with count scaling — `jobspec::TaskGroup` (count validation)
-- [~] Constraints (hard + soft) — `constraint::Constraint`
+- [x] Constraints (hard) — `constraint::Constraint` wired into `process_eval` via `TaskGroup.constraints`. Soft (affinity) TBD
 - [~] Affinities — `constraint::Affinity`
 - [~] Spread (per-datacenter, per-node, etc.) — `constraint::Spread`
 - [~] Network resources (ports, DNS, static IPs) — `network::{NetworkResource,Port}`
