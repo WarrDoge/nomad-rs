@@ -54,8 +54,16 @@ impl AllocRunner {
     ///
     /// Returns an error if a task fails to start.
     pub fn run(&mut self) -> Result<()> {
-        for runner in &mut self.runners {
-            runner.start()?;
+        for idx in 0..self.runners.len() {
+            if let Err(err) = self.runners[idx].start() {
+                // Roll back already-started tasks so a partial failure doesn't
+                // leave orphaned processes, and mark the alloc terminal.
+                for started in self.runners[..idx].iter_mut().rev() {
+                    let _ = started.stop();
+                }
+                self.alloc.client_status = ClientStatus::Failed;
+                return Err(err);
+            }
         }
         self.alloc.client_status = ClientStatus::Running;
         Ok(())
@@ -67,11 +75,15 @@ impl AllocRunner {
     ///
     /// Returns an error if teardown fails.
     pub fn destroy(&mut self) -> Result<()> {
+        // Try to stop every task even if one fails; return the first error.
+        let mut first_err = None;
         for runner in &mut self.runners {
-            runner.stop()?;
+            if let Err(err) = runner.stop() {
+                first_err.get_or_insert(err);
+            }
         }
         self.alloc.client_status = ClientStatus::Complete;
-        Ok(())
+        first_err.map_or(Ok(()), Err)
     }
 }
 
@@ -115,6 +127,25 @@ mod tests {
     #[test]
     fn destroy_succeeds() {
         assert!(runner().destroy().is_ok());
+    }
+
+    fn bad_task() -> Task {
+        // exec driver, no command → start_task errors.
+        Task {
+            name: "bad".to_owned(),
+            driver: "exec".to_owned(),
+            config: HashMap::new(),
+            resources: Resources::default(),
+        }
+    }
+
+    #[test]
+    fn run_rolls_back_started_tasks_on_later_failure() {
+        let mut r = AllocRunner::new(alloc(), vec![sleep_task(), bad_task()]);
+        assert!(r.run().is_err());
+        assert_eq!(r.status(), ClientStatus::Failed);
+        // The first task was started then rolled back → not left running.
+        assert_eq!(r.task_states().unwrap()[0], TaskState::Exited);
     }
 
     #[test]

@@ -7,7 +7,7 @@
 
 ## Status (verified against source, 2026-06-25)
 
-`cargo test`: **269 pass, 0 ignored.** Green count is NOT a proxy for
+`cargo test`: **292 pass, 0 ignored.** Green count is NOT a proxy for
 "implemented" — stubs return `Ok(())`/defaults (no `todo!()`), so a passing
 test can be exercising an empty stub. The classification below reflects what
 the **code actually does**, not what compiles.
@@ -115,7 +115,7 @@ specced, behaviour stubbed · `[ ]` not started.
 
 ### RPC Layer
 - [ ] mTLS transport
-- [~] RPC server (custom protocol over mTLS) — `rpc::RpcEndpoint` req/resp handles writes via Raft + reads via eval queue; wire transport TBD
+- [~] RPC server (custom protocol over mTLS) — `rpc::RpcEndpoint` req/resp commits writes via Raft and dequeues evals; wire transport TBD
 - [ ] RPC client for node-to-server communication
 - [x] Forwarding to leader — `rpc::RpcEndpoint` commits via `RaftNode`; follower returns `Response::NotLeader { leader_addr }`. Actual cross-node forward needs the transport
 

@@ -7,7 +7,7 @@
 //! `taskrunner`. Behaviour is specified by the tests and is unimplemented.
 
 use crate::driver::{ExecDriver, TaskDriver, TaskHandle, TaskState};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::jobspec::Task;
 
 /// Drives one task's lifecycle on a node.
@@ -54,6 +54,14 @@ impl TaskRunner {
     ///
     /// Returns an error if the driver fails to start the task.
     pub fn start(&mut self) -> Result<()> {
+        if self.handle.is_some() {
+            return Err(Error::Runtime(format!("task '{}' already started", self.task.name)));
+        }
+        // Only the exec driver is wired; reject other driver names rather than
+        // silently running them under exec.
+        if self.task.driver != self.driver.name() {
+            return Err(Error::Runtime(format!("unsupported task driver '{}'", self.task.driver)));
+        }
         let handle = self.driver.start_task(&self.task)?;
         self.state = handle.state;
         self.handle = Some(handle);
@@ -170,5 +178,27 @@ mod tests {
     #[test]
     fn start_with_missing_command_errors() {
         assert!(runner().start().is_err());
+    }
+
+    #[test]
+    fn double_start_is_rejected() {
+        let mut r = runner_cmd("sleep", &["30"]);
+        r.start().unwrap();
+        assert!(r.start().is_err(), "second start must not spawn a second process");
+        r.stop().unwrap();
+    }
+
+    #[test]
+    fn unsupported_driver_errors() {
+        let mut config = HashMap::new();
+        config.insert("command".to_owned(), serde_json::json!("sleep"));
+        config.insert("args".to_owned(), serde_json::json!(["30"]));
+        let mut r = TaskRunner::new(Task {
+            name: "web".to_owned(),
+            driver: "docker".to_owned(),
+            config,
+            resources: Resources::default(),
+        });
+        assert!(r.start().is_err());
     }
 }

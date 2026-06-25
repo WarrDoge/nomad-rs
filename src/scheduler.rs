@@ -45,29 +45,43 @@ fn is_live(status: ClientStatus) -> bool {
     matches!(status, ClientStatus::Pending | ClientStatus::Running)
 }
 
-/// Whether `node` can host a group demanding `need`: ready, eligible, and
-/// enough free capacity after accounting for allocs already running on it.
-fn node_fits(node: &Node, need: Resources, state: &StateStore) -> bool {
-    if node.status != NodeStatus::Ready || node.eligibility != SchedulingEligibility::Eligible || node.draining {
-        return false;
-    }
-    let free = free_capacity(node, state);
-    free.cpu_mhz >= need.cpu_mhz && free.memory_mb >= need.memory_mb
+/// Whether a node is in a placeable state (ready, eligible, not draining).
+fn node_eligible(node: &Node) -> bool {
+    node.status == NodeStatus::Ready && node.eligibility == SchedulingEligibility::Eligible && !node.draining
 }
 
-/// Process one evaluation into a [`Plan`]: for each task group in the job, pick
-/// the first feasible node and emit a `Run` allocation per desired count.
+/// Whether `avail` covers `need` across every tracked resource.
+fn fits(avail: Resources, need: Resources) -> bool {
+    avail.cpu_mhz >= need.cpu_mhz && avail.memory_mb >= need.memory_mb && avail.network_mbps >= need.network_mbps
+}
+
+/// Process one evaluation into a [`Plan`]: place each instance of each task
+/// group on the first node that still has room, decrementing that node's
+/// running free capacity as allocations are added so a node is never
+/// oversubscribed (across counts or multiple groups).
 ///
 /// ponytail: first-fit, no scoring/spread. Real ranking is backlog #1b.
 #[must_use]
 pub fn process_eval(eval: &Evaluation, state: &StateStore) -> Plan {
     let mut plan = Plan::default();
     let Some(job) = state.get_job(&eval.job_id) else { return plan };
-    let nodes = state.list_nodes();
+    // Eligible nodes paired with their current free capacity; decremented as we
+    // reserve placements within this plan.
+    let mut free: Vec<(Node, Resources)> = state
+        .list_nodes()
+        .into_iter()
+        .filter(node_eligible)
+        .map(|n| {
+            let avail = free_capacity(&n, state);
+            (n, avail)
+        })
+        .collect();
     for group in &job.task_groups {
         let need = group_demand(group);
-        let Some(node) = nodes.iter().find(|n| node_fits(n, need, state)) else { continue };
         for _ in 0..group.count.max(0) {
+            let Some((node, avail)) = free.iter_mut().find(|(_, avail)| fits(*avail, need)) else {
+                break; // no node has room for another instance
+            };
             plan.allocs.push(Allocation {
                 id: format!("{}-{}", eval.id, plan.allocs.len()),
                 eval_id: eval.id.clone(),
@@ -78,6 +92,9 @@ pub fn process_eval(eval: &Evaluation, state: &StateStore) -> Plan {
                 client_status: ClientStatus::Pending,
                 resources: need,
             });
+            avail.cpu_mhz -= need.cpu_mhz;
+            avail.memory_mb -= need.memory_mb;
+            avail.network_mbps -= need.network_mbps;
         }
     }
     plan
@@ -425,6 +442,30 @@ mod tests {
         assert_eq!(first.allocs.len(), 1, "first job placed");
         assert!(second.allocs.is_empty(), "second job has no capacity left");
         assert_eq!(fsm.state().allocs_by_node("node1").len(), 1);
+    }
+
+    #[test]
+    fn process_eval_does_not_oversubscribe_node_for_count() {
+        // Node fits 2 instances of 250/250, not 3.
+        let mut state = StateStore::new();
+        state.upsert_node(node_with("node1", 600, 600)).unwrap();
+        let mut job = job_with("web", "g1", 250, 250);
+        job.task_groups[0].count = 3;
+        state.upsert_job(job).unwrap();
+        let plan = process_eval(&eval_for("web"), &state);
+        assert_eq!(plan.allocs.len(), 2);
+    }
+
+    #[test]
+    fn process_eval_enforces_network_demand() {
+        // Node has no network capacity; group needs some → cannot place.
+        let mut state = StateStore::new();
+        state.upsert_node(node_with("node1", 1000, 1024)).unwrap();
+        let mut job = job_with("web", "g1", 100, 128);
+        job.task_groups[0].tasks[0].resources.network_mbps = 10;
+        state.upsert_job(job).unwrap();
+        let plan = process_eval(&eval_for("web"), &state);
+        assert!(plan.allocs.is_empty());
     }
 
     #[test]
