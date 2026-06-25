@@ -66,11 +66,58 @@ A function is one of three things. Know which you're writing:
 When a function mixes all three, the pure part is the one worth extracting — it returns a
 *value describing the effect* (a `Plan`, a `Vec<Command>`), and the shell executes it.
 
+Because the core is pure, it is the cheap place to test — no mocks, no setup. Prefer
+*property* tests over examples where a law holds, e.g. **a `Plan` never oversubscribes a
+node** or **`process_eval` is idempotent for a fixed state**. (No `proptest` in-tree yet; the
+pure scheduler functions — `process_eval`, `free_capacity`, `fits` — are where it would pay
+first.)
+
+### Ports and adapters (hexagonal), in moderation
+
+Pure-core / effects-at-the-edge is the load-bearing half of *hexagonal architecture* (ports
+& adapters): the domain doesn't know how it's invoked or where its data lands. Take the part
+that pays — domain logic (`scheduler`, `fsm`, validation) never imports `tokio`, `rusqlite`,
+or a socket — and stop there.
+
+Do **not** invert every dependency behind a trait. The one real *port* here is
+`trait TaskDriver`: an open set of execution backends (`exec`, `docker`, `raw_exec`) that are
+genuine adapters. Everywhere else the "adapter" is concrete — one in-memory `StateStore`, one
+raft — because there is exactly one implementation and the effect is in-process. A trait +
+`dyn` at those seams is the ceremony §6 warns against: indirection you pay for and
+flexibility you never use. Add a port when a *second* real adapter appears, not before.
+
+And a port need not be a trait. The lighter form is *functional DI* — the core asks for a
+capability as a plain function parameter, and the composition root binds the real one:
+
+```rust
+// the "port" is a function type; no trait, no dyn.
+fn place(find_node: impl Fn(&NodeId) -> Option<Node>, eval: &Evaluation) -> Plan { ... }
+// composition root supplies the adapter:
+place(|id| state.get_node(id.as_str()), &eval);
+```
+
+Reach for a `trait` only when one capability bundles several methods or several live adapters
+(as `TaskDriver` does); otherwise a function parameter is the whole pattern.
+
+**Divergence from the textbook:** the FP canon separates rich domain types from flat
+serialization DTOs (domain pure, DTO at the gate). We serialize the domain types directly
+with serde (`StateStore` save/load, the raft log), and the `#[serde(transparent)]` newtypes
+keep the wire stable. Split out DTOs only once the wire format and the domain model start to
+drift apart — not pre-emptively.
+
 ---
 
 ## 2. Make illegal states unrepresentable
 
 Prefer the compiler over runtime checks. Two tools cover most cases here.
+
+**Algebraic data types.** Rust's `enum` and `struct` are ADTs: an `enum` is a *sum* (a value
+is exactly one of N variants — `ClientStatus` is one of five), a `struct` is a *product* (all
+of its fields at once). The design lever is composing them into a **product of sums** so that
+illegal combinations can't be constructed — `Allocation` is a product whose `client_status`
+and `desired_status` are sums, so there is no way to build an allocation in an unlisted
+status. Corollary: when a *combination* of fields is illegal, collapse it into the type —
+two booleans (4 states, some invalid) become one enum that lists only the legal states.
 
 **Sum types for state machines.** Never model a state with a `bool` or a `String`. Every
 lifecycle here is an enum with an exhaustive `match` (`src/alloc.rs`, `src/eval.rs`,
@@ -134,6 +181,13 @@ Convert at the persistence edge (see `client_state.rs`: `.as_str()` on write,
 `row.get::<_, String>(n)?.into()` on read) rather than coupling the id to the storage layer.
 A newtype is **zero-cost** — it compiles to the wrapped `String`, so this safety is free at
 runtime (the criterion benches confirm no regression).
+
+**Smart constructors, where invariants are real.** The canonical pattern pairs a wrapper with
+a private field and `fn new(s) -> Result<Self, _>` that validates on construction, so the value
+is *valid-by-type* thereafter. Our id newtypes deliberately skip that — any string is a
+syntactically valid id, and validation lives at the aggregate boundary
+(`Job::validate`, `Allocation::validate`). Use a smart constructor when a wrapper has a *real*
+invariant (a port in `1..=65535`, a bounded quantity); skip the ceremony for opaque ids.
 
 **Polymorphism: prefer enums and static dispatch.** A *closed* set of cases is a sum type
 (the status enums above), not a trait hierarchy. When you genuinely need pluggable
