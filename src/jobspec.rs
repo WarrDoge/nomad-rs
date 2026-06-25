@@ -71,7 +71,7 @@ pub struct Task {
 }
 
 /// Resource requirements for a task.
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Resources {
     /// CPU MHz required.
     pub cpu_mhz: i32,

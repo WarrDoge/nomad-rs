@@ -5,7 +5,144 @@
 //! The scheduler watches for pending evaluations, calculates placement
 //! scores across candidate nodes, and produces allocation plans.
 
+use crate::alloc::{Allocation, ClientStatus, DesiredStatus};
 use crate::error::Result;
+use crate::eval::Evaluation;
+use crate::fsm::{Command, Fsm};
+use crate::jobspec::{Resources, TaskGroup};
+use crate::node::{Node, NodeStatus, SchedulingEligibility};
+use crate::state::StateStore;
+
+/// A set of placements the scheduler wants to apply for one evaluation.
+#[derive(Debug, Default, Clone)]
+pub struct Plan {
+    /// Allocations to create.
+    pub allocs: Vec<Allocation>,
+}
+
+/// Total resources a task group demands (sum of its tasks).
+fn group_demand(group: &TaskGroup) -> Resources {
+    group.tasks.iter().fold(Resources { cpu_mhz: 0, memory_mb: 0, network_mbps: 0 }, |acc, t| Resources {
+        cpu_mhz: acc.cpu_mhz + t.resources.cpu_mhz,
+        memory_mb: acc.memory_mb + t.resources.memory_mb,
+        network_mbps: acc.network_mbps + t.resources.network_mbps,
+    })
+}
+
+/// Free capacity on a node: total minus all non-terminal allocs placed on it.
+fn free_capacity(node: &Node, state: &StateStore) -> Resources {
+    state.allocs_by_node(&node.id).iter().filter(|a| is_live(a.client_status)).fold(node.resources, |free, a| {
+        Resources {
+            cpu_mhz: free.cpu_mhz - a.resources.cpu_mhz,
+            memory_mb: free.memory_mb - a.resources.memory_mb,
+            network_mbps: free.network_mbps - a.resources.network_mbps,
+        }
+    })
+}
+
+/// An alloc reserves capacity until it reaches a terminal client status.
+fn is_live(status: ClientStatus) -> bool {
+    matches!(status, ClientStatus::Pending | ClientStatus::Running)
+}
+
+/// Whether a node is in a placeable state (ready, eligible, not draining).
+fn node_eligible(node: &Node) -> bool {
+    node.status == NodeStatus::Ready && node.eligibility == SchedulingEligibility::Eligible && !node.draining
+}
+
+/// Whether `avail` covers `need` across every tracked resource.
+fn fits(avail: Resources, need: Resources) -> bool {
+    avail.cpu_mhz >= need.cpu_mhz && avail.memory_mb >= need.memory_mb && avail.network_mbps >= need.network_mbps
+}
+
+/// Process one evaluation into a [`Plan`]: place each instance of each task
+/// group on the first node that still has room, decrementing that node's
+/// running free capacity as allocations are added so a node is never
+/// oversubscribed (across counts or multiple groups).
+///
+/// ponytail: first-fit, no scoring/spread. Real ranking is backlog #1b.
+#[must_use]
+pub fn process_eval(eval: &Evaluation, state: &StateStore) -> Plan {
+    let mut plan = Plan::default();
+    let Some(job) = state.get_job(&eval.job_id) else { return plan };
+    // Eligible nodes paired with their current free capacity; decremented as we
+    // reserve placements within this plan.
+    let mut free: Vec<(Node, Resources)> = state
+        .list_nodes()
+        .into_iter()
+        .filter(node_eligible)
+        .map(|n| {
+            let avail = free_capacity(&n, state);
+            (n, avail)
+        })
+        .collect();
+    for group in &job.task_groups {
+        let need = group_demand(group);
+        for _ in 0..group.count.max(0) {
+            let Some((node, avail)) = free.iter_mut().find(|(_, avail)| fits(*avail, need)) else {
+                break; // no node has room for another instance
+            };
+            plan.allocs.push(Allocation {
+                id: format!("{}-{}", eval.id, plan.allocs.len()),
+                eval_id: eval.id.clone(),
+                node_id: node.id.clone(),
+                job_id: job.name.clone(),
+                task_group: group.name.clone(),
+                desired_status: DesiredStatus::Run,
+                client_status: ClientStatus::Pending,
+                resources: need,
+            });
+            avail.cpu_mhz -= need.cpu_mhz;
+            avail.memory_mb -= need.memory_mb;
+            avail.network_mbps -= need.network_mbps;
+        }
+    }
+    plan
+}
+
+/// Apply a [`Plan`] by committing each placement to the FSM as an `UpsertAlloc`.
+///
+/// # Errors
+///
+/// Returns the first error from [`Fsm::apply`] (e.g. a rejected allocation).
+///
+/// ponytail: applies directly to the local FSM. Real Nomad routes plans through
+/// the leader's plan applier over Raft — swap the apply target when raft lands.
+pub fn apply_plan(fsm: &mut Fsm, plan: &Plan) -> Result<()> {
+    for alloc in &plan.allocs {
+        fsm.apply(Command::UpsertAlloc(alloc.clone()))?;
+    }
+    Ok(())
+}
+
+/// Process one evaluation against the FSM's state and commit the resulting
+/// placements. Returns the [`Plan`] that was applied.
+///
+/// # Errors
+///
+/// Propagates any error from [`apply_plan`].
+pub fn process_and_apply(eval: &Evaluation, fsm: &mut Fsm) -> Result<Plan> {
+    let plan = process_eval(eval, fsm.state());
+    apply_plan(fsm, &plan)?;
+    Ok(plan)
+}
+
+/// Dequeue and process every pending evaluation in `queue`, applying each plan
+/// to `fsm`. Returns the total number of allocations placed.
+///
+/// # Errors
+///
+/// Propagates the first dequeue or apply error.
+///
+/// ponytail: synchronous drain — one pass, no ack/nack/retry. The async worker
+/// loop with leader leasing is backlog #8.
+pub fn drain_queue(queue: &crate::eval_queue::EvalQueue, fsm: &mut Fsm) -> Result<usize> {
+    let mut placed = 0;
+    while let Some(eval) = queue.dequeue()? {
+        placed += process_and_apply(&eval, fsm)?.allocs.len();
+    }
+    Ok(placed)
+}
 
 /// The possible states a scheduler can be in.
 pub use crate::agent::AgentStatus as SchedulerStatus;
@@ -118,5 +255,233 @@ mod tests {
         assert_eq!(scheduler.status(), SchedulerStatus::Initialized);
         scheduler.stop();
         assert_eq!(scheduler.status(), SchedulerStatus::Stopped);
+    }
+
+    use crate::alloc::DesiredStatus;
+    use crate::eval::{EvalStatus, EvalTrigger, Evaluation};
+    use crate::jobspec::{Job, Resources, Task, TaskGroup};
+    use crate::node::{Node, NodeStatus, SchedulingEligibility};
+    use crate::state::StateStore;
+    use std::collections::HashMap;
+
+    fn node_with(id: &str, cpu: i32, mem: i32) -> Node {
+        Node {
+            id: id.to_owned(),
+            name: "n".to_owned(),
+            datacenter: "dc1".to_owned(),
+            node_class: String::new(),
+            resources: Resources { cpu_mhz: cpu, memory_mb: mem, network_mbps: 0 },
+            status: NodeStatus::Ready,
+            eligibility: SchedulingEligibility::Eligible,
+            draining: false,
+            attributes: HashMap::new(),
+            drivers: HashMap::new(),
+        }
+    }
+
+    fn job_with(name: &str, group: &str, cpu: i32, mem: i32) -> Job {
+        let task = Task {
+            name: "t".to_owned(),
+            driver: "exec".to_owned(),
+            config: HashMap::new(),
+            resources: Resources { cpu_mhz: cpu, memory_mb: mem, network_mbps: 0 },
+        };
+        Job {
+            name: name.to_owned(),
+            task_groups: vec![TaskGroup { name: group.to_owned(), count: 1, tasks: vec![task] }],
+            ..Job::default()
+        }
+    }
+
+    fn eval_for(job: &str) -> Evaluation {
+        eval_for_id("e1", job)
+    }
+
+    fn eval_for_id(id: &str, job: &str) -> Evaluation {
+        Evaluation {
+            id: id.to_owned(),
+            job_id: job.to_owned(),
+            priority: 50,
+            trigger: EvalTrigger::JobRegister,
+            status: EvalStatus::Pending,
+        }
+    }
+
+    #[test]
+    fn process_eval_places_alloc_on_feasible_node() {
+        let mut state = StateStore::new();
+        state.upsert_node(node_with("node1", 1000, 1024)).unwrap();
+        state.upsert_job(job_with("web", "g1", 500, 512)).unwrap();
+
+        let plan = process_eval(&eval_for("web"), &state);
+
+        assert_eq!(plan.allocs.len(), 1);
+        let alloc = &plan.allocs[0];
+        assert_eq!(alloc.node_id, "node1");
+        assert_eq!(alloc.job_id, "web");
+        assert_eq!(alloc.task_group, "g1");
+        assert_eq!(alloc.eval_id, "e1");
+        assert_eq!(alloc.desired_status, DesiredStatus::Run);
+    }
+
+    #[test]
+    fn process_eval_empty_when_no_node_fits() {
+        let mut state = StateStore::new();
+        state.upsert_node(node_with("node1", 100, 128)).unwrap();
+        state.upsert_job(job_with("web", "g1", 500, 512)).unwrap();
+        let plan = process_eval(&eval_for("web"), &state);
+        assert!(plan.allocs.is_empty());
+    }
+
+    #[test]
+    fn process_eval_empty_when_job_missing() {
+        let state = StateStore::new();
+        let plan = process_eval(&eval_for("ghost"), &state);
+        assert!(plan.allocs.is_empty());
+    }
+
+    #[test]
+    fn process_eval_subtracts_existing_allocs_from_capacity() {
+        let mut state = StateStore::new();
+        state.upsert_node(node_with("node1", 1000, 1024)).unwrap();
+        // Running alloc already consumes most of node1.
+        state
+            .upsert_alloc(Allocation {
+                id: "old".to_owned(),
+                eval_id: "e0".to_owned(),
+                node_id: "node1".to_owned(),
+                job_id: "other".to_owned(),
+                task_group: "g".to_owned(),
+                desired_status: DesiredStatus::Run,
+                client_status: ClientStatus::Running,
+                resources: Resources { cpu_mhz: 800, memory_mb: 800, network_mbps: 0 },
+            })
+            .unwrap();
+        // Needs 500/512 — only 200/224 free → must not place.
+        state.upsert_job(job_with("web", "g1", 500, 512)).unwrap();
+        let plan = process_eval(&eval_for("web"), &state);
+        assert!(plan.allocs.is_empty());
+    }
+
+    #[test]
+    fn process_eval_ignores_terminal_allocs_for_capacity() {
+        let mut state = StateStore::new();
+        state.upsert_node(node_with("node1", 1000, 1024)).unwrap();
+        // A completed alloc should NOT reserve capacity.
+        state
+            .upsert_alloc(Allocation {
+                id: "done".to_owned(),
+                eval_id: "e0".to_owned(),
+                node_id: "node1".to_owned(),
+                job_id: "other".to_owned(),
+                task_group: "g".to_owned(),
+                desired_status: DesiredStatus::Stop,
+                client_status: ClientStatus::Complete,
+                resources: Resources { cpu_mhz: 800, memory_mb: 800, network_mbps: 0 },
+            })
+            .unwrap();
+        state.upsert_job(job_with("web", "g1", 500, 512)).unwrap();
+        let plan = process_eval(&eval_for("web"), &state);
+        assert_eq!(plan.allocs.len(), 1);
+    }
+
+    #[test]
+    fn process_eval_emits_one_alloc_per_count() {
+        let mut state = StateStore::new();
+        state.upsert_node(node_with("node1", 1000, 1024)).unwrap();
+        let mut job = job_with("web", "g1", 100, 128);
+        job.task_groups[0].count = 3;
+        state.upsert_job(job).unwrap();
+        let plan = process_eval(&eval_for("web"), &state);
+        assert_eq!(plan.allocs.len(), 3);
+        assert!(plan.allocs.iter().all(|a| a.node_id == "node1"));
+    }
+
+    #[test]
+    fn process_and_apply_writes_allocs_to_state() {
+        let mut fsm = Fsm::new();
+        fsm.apply(Command::UpsertNode(node_with("node1", 1000, 1024))).unwrap();
+        fsm.apply(Command::UpsertJob(job_with("web", "g1", 500, 512))).unwrap();
+
+        let plan = process_and_apply(&eval_for("web"), &mut fsm).unwrap();
+
+        assert_eq!(plan.allocs.len(), 1);
+        assert_eq!(fsm.state().allocs_by_node("node1").len(), 1);
+        assert_eq!(fsm.state().allocs_by_job("web").len(), 1);
+    }
+
+    #[test]
+    fn drain_queue_processes_all_pending_evals() {
+        use crate::eval_queue::EvalQueue;
+        let mut fsm = Fsm::new();
+        fsm.apply(Command::UpsertNode(node_with("node1", 1000, 1024))).unwrap();
+        fsm.apply(Command::UpsertJob(job_with("a", "g", 100, 100))).unwrap();
+        fsm.apply(Command::UpsertJob(job_with("b", "g", 100, 100))).unwrap();
+        let queue = EvalQueue::new();
+        queue.enqueue(eval_for_id("ea", "a")).unwrap();
+        queue.enqueue(eval_for_id("eb", "b")).unwrap();
+
+        let placed = drain_queue(&queue, &mut fsm).unwrap();
+
+        assert_eq!(placed, 2, "both evals placed one alloc each");
+        assert!(queue.dequeue().unwrap().is_none(), "queue drained");
+        assert_eq!(fsm.state().list_allocs().len(), 2);
+    }
+
+    #[test]
+    fn process_and_apply_second_eval_respects_first_placement() {
+        // Two evals for two single-instance jobs onto one node with room for one.
+        let mut fsm = Fsm::new();
+        fsm.apply(Command::UpsertNode(node_with("node1", 600, 600))).unwrap();
+        fsm.apply(Command::UpsertJob(job_with("a", "g", 500, 500))).unwrap();
+        fsm.apply(Command::UpsertJob(job_with("b", "g", 500, 500))).unwrap();
+
+        let first = process_and_apply(&eval_for("a"), &mut fsm).unwrap();
+        let second = process_and_apply(&eval_for("b"), &mut fsm).unwrap();
+
+        assert_eq!(first.allocs.len(), 1, "first job placed");
+        assert!(second.allocs.is_empty(), "second job has no capacity left");
+        assert_eq!(fsm.state().allocs_by_node("node1").len(), 1);
+    }
+
+    #[test]
+    fn process_eval_does_not_oversubscribe_node_for_count() {
+        // Node fits 2 instances of 250/250, not 3.
+        let mut state = StateStore::new();
+        state.upsert_node(node_with("node1", 600, 600)).unwrap();
+        let mut job = job_with("web", "g1", 250, 250);
+        job.task_groups[0].count = 3;
+        state.upsert_job(job).unwrap();
+        let plan = process_eval(&eval_for("web"), &state);
+        assert_eq!(plan.allocs.len(), 2);
+    }
+
+    #[test]
+    fn process_eval_enforces_network_demand() {
+        // Node has no network capacity; group needs some → cannot place.
+        let mut state = StateStore::new();
+        state.upsert_node(node_with("node1", 1000, 1024)).unwrap();
+        let mut job = job_with("web", "g1", 100, 128);
+        job.task_groups[0].tasks[0].resources.network_mbps = 10;
+        state.upsert_job(job).unwrap();
+        let plan = process_eval(&eval_for("web"), &state);
+        assert!(plan.allocs.is_empty());
+    }
+
+    #[test]
+    fn process_eval_skips_ineligible_and_down_nodes() {
+        let mut down = node_with("down1", 1000, 1024);
+        down.status = NodeStatus::Down;
+        let mut inelig = node_with("inelig1", 1000, 1024);
+        inelig.eligibility = SchedulingEligibility::Ineligible;
+        let mut draining = node_with("drain1", 1000, 1024);
+        draining.draining = true;
+        let mut state = StateStore::new();
+        state.upsert_node(down).unwrap();
+        state.upsert_node(inelig).unwrap();
+        state.upsert_node(draining).unwrap();
+        state.upsert_job(job_with("web", "g1", 100, 128)).unwrap();
+        let plan = process_eval(&eval_for("web"), &state);
+        assert!(plan.allocs.is_empty());
     }
 }
