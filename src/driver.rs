@@ -8,8 +8,11 @@
 //! [`DockerDriver`](crate::driver::DockerDriver) are backends whose behaviour is specified by the tests and
 //! is unimplemented.
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::jobspec::Task;
+use std::collections::HashMap;
+use std::process::{Child, Command};
+use std::sync::Mutex;
 
 /// Runtime state of a task as reported by its driver.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,9 +76,20 @@ pub trait TaskDriver {
     fn inspect_task(&self, handle: &TaskHandle) -> Result<TaskState>;
 }
 
-/// The fork/exec driver: runs a task as an isolated child process.
+/// The fork/exec driver: runs a task as a child process.
+///
+/// Task config keys: `command` (string, required) and `args` (array of
+/// strings, optional). The handle id is the child pid.
+///
+/// ponytail: real fork/exec via stdlib, but NOT yet isolated — no cgroups,
+/// namespaces, or chroot despite `capabilities().isolated`. Add isolation
+/// (cgroup v2 + namespaces, Linux-only) before trusting this as a security
+/// boundary; today it is functionally `raw_exec`.
 #[derive(Debug, Default)]
-pub struct ExecDriver;
+pub struct ExecDriver {
+    /// Live children keyed by pid string, so stop/inspect can reach them.
+    running: Mutex<HashMap<String, Child>>,
+}
 
 impl TaskDriver for ExecDriver {
     fn name(&self) -> &'static str {
@@ -87,17 +101,42 @@ impl TaskDriver for ExecDriver {
     }
 
     fn start_task(&self, task: &Task) -> Result<TaskHandle> {
-        let _ = task;
-        Ok(TaskHandle { id: "exec-h1".to_owned(), state: TaskState::Running })
+        let command = task
+            .config
+            .get("command")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| Error::Runtime("exec driver: missing `command` in task config".to_owned()))?;
+        let args: Vec<String> = task
+            .config
+            .get("args")
+            .and_then(serde_json::Value::as_array)
+            .map(|a| a.iter().filter_map(|v| v.as_str().map(ToOwned::to_owned)).collect())
+            .unwrap_or_default();
+
+        let child = Command::new(command).args(&args).spawn()?;
+        let id = child.id().to_string();
+        self.running.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(id.clone(), child);
+        Ok(TaskHandle { id, state: TaskState::Running })
     }
 
     fn stop_task(&self, handle: &TaskHandle) -> Result<()> {
-        let _ = handle;
+        if let Some(mut child) = self.running.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&handle.id) {
+            child.kill()?;
+            let _ = child.wait();
+        }
         Ok(())
     }
 
     fn inspect_task(&self, handle: &TaskHandle) -> Result<TaskState> {
-        Ok(handle.state)
+        let mut running = self.running.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(child) = running.get_mut(&handle.id) else {
+            // Unknown id, or already reaped by stop_task → treat as finished.
+            return Ok(TaskState::Exited);
+        };
+        match child.try_wait()? {
+            Some(_) => Ok(TaskState::Exited), // exited; leave the entry for repeat inspects
+            None => Ok(TaskState::Running),
+        }
     }
 }
 
@@ -173,33 +212,54 @@ mod tests {
         }
     }
 
-    fn handle() -> TaskHandle {
-        TaskHandle { id: "h1".to_owned(), state: TaskState::Running }
+    fn task_cmd(command: &str, args: &[&str]) -> Task {
+        let mut config = HashMap::new();
+        config.insert("command".to_owned(), serde_json::json!(command));
+        config.insert("args".to_owned(), serde_json::json!(args));
+        Task { name: "web".to_owned(), driver: "exec".to_owned(), config, resources: Resources::default() }
     }
 
     #[test]
     fn exec_driver_is_named() {
-        assert_eq!(ExecDriver.name(), "exec");
+        assert_eq!(ExecDriver::default().name(), "exec");
     }
 
     #[test]
-    fn exec_driver_starts_task() {
-        assert_eq!(ExecDriver.start_task(&task()).unwrap().state, TaskState::Running);
+    fn exec_driver_spawns_real_process() {
+        let driver = ExecDriver::default();
+        let h = driver.start_task(&task_cmd("sleep", &["30"])).unwrap();
+        assert_eq!(h.state, TaskState::Running);
+        // Real pid, not the old "exec-h1" stub sentinel.
+        assert!(h.id.parse::<u32>().is_ok(), "handle id should be a pid, got {}", h.id);
+        assert_eq!(driver.inspect_task(&h).unwrap(), TaskState::Running);
+        driver.stop_task(&h).unwrap();
     }
 
     #[test]
-    fn exec_driver_stops_task() {
-        assert!(ExecDriver.stop_task(&handle()).is_ok());
+    fn exec_driver_missing_command_errors() {
+        assert!(ExecDriver::default().start_task(&task()).is_err());
     }
 
     #[test]
-    fn exec_driver_inspects_task() {
-        assert_eq!(ExecDriver.inspect_task(&handle()).unwrap(), TaskState::Running);
+    fn exec_driver_inspect_reports_exited_after_completion() {
+        let driver = ExecDriver::default();
+        let h = driver.start_task(&task_cmd("true", &[])).unwrap();
+        // Give the short-lived process a moment to exit.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert_eq!(driver.inspect_task(&h).unwrap(), TaskState::Exited);
+    }
+
+    #[test]
+    fn exec_driver_stop_kills_running_process() {
+        let driver = ExecDriver::default();
+        let h = driver.start_task(&task_cmd("sleep", &["30"])).unwrap();
+        driver.stop_task(&h).unwrap();
+        assert_eq!(driver.inspect_task(&h).unwrap(), TaskState::Exited);
     }
 
     #[test]
     fn exec_is_isolated() {
-        assert!(ExecDriver.capabilities().isolated);
+        assert!(ExecDriver::default().capabilities().isolated);
     }
 
     #[test]
