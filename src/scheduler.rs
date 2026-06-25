@@ -31,14 +31,13 @@ fn group_demand(group: &TaskGroup) -> Resources {
 
 /// Free capacity on a node: total minus all non-terminal allocs placed on it.
 fn free_capacity(node: &Node, state: &StateStore) -> Resources {
-    state.allocs_by_node(&node.id).iter().filter(|a| is_live(a.client_status)).fold(
-        node.resources,
-        |free, a| Resources {
+    state.allocs_by_node(&node.id).iter().filter(|a| is_live(a.client_status)).fold(node.resources, |free, a| {
+        Resources {
             cpu_mhz: free.cpu_mhz - a.resources.cpu_mhz,
             memory_mb: free.memory_mb - a.resources.memory_mb,
             network_mbps: free.network_mbps - a.resources.network_mbps,
-        },
-    )
+        }
+    })
 }
 
 /// An alloc reserves capacity until it reaches a terminal client status.
@@ -49,10 +48,7 @@ fn is_live(status: ClientStatus) -> bool {
 /// Whether `node` can host a group demanding `need`: ready, eligible, and
 /// enough free capacity after accounting for allocs already running on it.
 fn node_fits(node: &Node, need: Resources, state: &StateStore) -> bool {
-    if node.status != NodeStatus::Ready
-        || node.eligibility != SchedulingEligibility::Eligible
-        || node.draining
-    {
+    if node.status != NodeStatus::Ready || node.eligibility != SchedulingEligibility::Eligible || node.draining {
         return false;
     }
     let free = free_capacity(node, state);

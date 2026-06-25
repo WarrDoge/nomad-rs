@@ -120,7 +120,9 @@ impl TaskDriver for ExecDriver {
     }
 
     fn stop_task(&self, handle: &TaskHandle) -> Result<()> {
-        if let Some(mut child) = self.running.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&handle.id) {
+        if let Some(mut child) =
+            self.running.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&handle.id)
+        {
             child.kill()?;
             let _ = child.wait();
         }

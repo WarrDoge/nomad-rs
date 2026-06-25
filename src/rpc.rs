@@ -271,10 +271,7 @@ mod tests {
     #[test]
     fn job_deregister_removes_job_and_enqueues_cleanup_eval() {
         let q = EvalQueue::new();
-        let ep = RpcEndpoint::with_raft(
-            q.clone(),
-            Arc::new(Mutex::new(RaftNode::bootstrap("l1"))),
-        );
+        let ep = RpcEndpoint::with_raft(q.clone(), Arc::new(Mutex::new(RaftNode::bootstrap("l1"))));
         ep.handle(Request::JobRegister(Job { name: "web".to_owned(), ..Job::default() })).unwrap();
         let _ = q.dequeue().unwrap(); // drain the register eval
         ep.handle(Request::JobDeregister("web".to_owned())).unwrap();
