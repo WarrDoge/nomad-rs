@@ -95,6 +95,12 @@ impl TaskRunner {
     ///
     /// Returns an error if the driver cannot inspect the task.
     pub fn poll(&mut self) -> Result<TaskState> {
+        // Terminal states are sticky: a reaped child is dropped from the driver,
+        // so re-inspecting it would report `Exited` and silently downgrade a
+        // recorded `Failed`. Don't re-inspect once terminal.
+        if matches!(self.state, TaskState::Exited | TaskState::Failed) {
+            return Ok(self.state);
+        }
         if let Some(handle) = &self.handle {
             self.state = self.driver.inspect_task(handle)?;
         }
@@ -133,6 +139,7 @@ impl TaskRunner {
         if self.restart_count < self.restart_policy.attempts {
             self.restart_count += 1;
             self.state = TaskState::Pending; // about to be restarted
+            self.handle = None; // drop the dead handle so start() can relaunch
             true
         } else {
             self.state = TaskState::Failed;
@@ -226,6 +233,25 @@ mod tests {
     #[test]
     fn start_with_missing_command_errors() {
         assert!(runner().start().is_err());
+    }
+
+    #[test]
+    fn poll_keeps_failed_sticky() {
+        let mut r = runner_cmd("false", &[]);
+        r.start().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert_eq!(r.poll().unwrap(), TaskState::Failed);
+        assert_eq!(r.poll().unwrap(), TaskState::Failed, "terminal failure must not downgrade to Exited");
+    }
+
+    #[test]
+    fn restart_clears_handle_so_task_can_relaunch() {
+        let mut r = runner_cmd("true", &[]);
+        r.start().unwrap();
+        assert!(r.handle_exit(false), "first failure restarts");
+        // Handle cleared → start() is allowed again (no "already started").
+        r.start().expect("restart must be able to relaunch");
+        r.stop().unwrap();
     }
 
     #[test]
