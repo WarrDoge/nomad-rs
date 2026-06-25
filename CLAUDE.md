@@ -7,7 +7,7 @@ binary, not a library chasing a broad MSRV.
 
 **Before you commit, the gate must be green:**
 
-```
+```bash
 mise run check-all   # fmt --check, clippy (all+pedantic+cargo), check, test, doc
 ```
 

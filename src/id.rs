@@ -68,12 +68,6 @@ macro_rules! id_type {
             }
         }
 
-        impl AsRef<str> for $name {
-            fn as_ref(&self) -> &str {
-                &self.0
-            }
-        }
-
         // Keeps `id == "literal"` and `a.node_id == node_id_str` compiling.
         impl PartialEq<&str> for $name {
             fn eq(&self, other: &&str) -> bool {
