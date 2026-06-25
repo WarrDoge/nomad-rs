@@ -155,6 +155,8 @@ impl RpcEndpoint {
                 if let Some(resp) = self.commit(Command::UpsertNode(node))? {
                     return Ok(resp);
                 }
+                // New/updated node may have freed capacity — re-try blocked evals.
+                self.eval_queue.unblock_all()?;
                 Ok(Response::Ack)
             },
             Request::EvalDequeue { schedulers: _ } => {
@@ -393,6 +395,24 @@ mod tests {
         let ep = RpcEndpoint::new(EvalQueue::new());
         assert!(matches!(ep.handle(Request::NodeRegister(node("n1"))).unwrap(), Response::Ack));
         assert!(ep.raft().lock().unwrap().state().get_node("n1").is_some());
+    }
+
+    #[test]
+    fn node_register_unblocks_blocked_evals() {
+        let q = EvalQueue::new();
+        let ep = RpcEndpoint::new(q.clone());
+        q.block(Evaluation {
+            id: "blocked1".to_owned(),
+            job_id: "web".to_owned(),
+            priority: 50,
+            trigger: EvalTrigger::JobRegister,
+            status: EvalStatus::Pending,
+        })
+        .unwrap();
+        assert_eq!(q.blocked_len(), 1);
+        ep.handle(Request::NodeRegister(node("n1"))).unwrap();
+        assert_eq!(q.blocked_len(), 0, "node join re-tried blocked evals");
+        assert_eq!(q.len(), 1, "blocked eval moved to pending heap");
     }
 
     #[test]

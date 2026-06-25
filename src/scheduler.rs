@@ -55,6 +55,18 @@ fn fits(avail: Resources, need: Resources) -> bool {
     avail.cpu_mhz >= need.cpu_mhz && avail.memory_mb >= need.memory_mb && avail.network_mbps >= need.network_mbps
 }
 
+/// Whether `node`'s attributes satisfy every hard constraint on `group`.
+fn meets_constraints(node: &Node, group: &TaskGroup) -> bool {
+    group.constraints.iter().all(|c| c.satisfied_by(&node.attributes))
+}
+
+/// Total instances the eval's job currently wants placed across its task
+/// groups; `0` if the job is unknown (e.g. a post-deregister cleanup eval).
+#[must_use]
+pub fn desired_count(eval: &Evaluation, state: &StateStore) -> i32 {
+    state.get_job(&eval.job_id).map_or(0, |j| j.task_groups.iter().map(|g| g.count.max(0)).sum())
+}
+
 /// Process one evaluation into a [`Plan`]: place each instance of each task
 /// group on the first node that still has room, decrementing that node's
 /// running free capacity as allocations are added so a node is never
@@ -79,8 +91,10 @@ pub fn process_eval(eval: &Evaluation, state: &StateStore) -> Plan {
     for group in &job.task_groups {
         let need = group_demand(group);
         for _ in 0..group.count.max(0) {
-            let Some((node, avail)) = free.iter_mut().find(|(_, avail)| fits(*avail, need)) else {
-                break; // no node has room for another instance
+            let Some((node, avail)) =
+                free.iter_mut().find(|(node, avail)| fits(*avail, need) && meets_constraints(node, group))
+            else {
+                break; // no node has room and satisfies constraints
             };
             plan.allocs.push(Allocation {
                 id: format!("{}-{}", eval.id, plan.allocs.len()),
@@ -145,6 +159,10 @@ pub fn drain_queue(queue: &crate::eval_queue::EvalQueue, fsm: &mut Fsm) -> Resul
         match process_and_apply(&eval, fsm) {
             Ok(plan) => {
                 placed += plan.allocs.len();
+                // Wanted placement but got none → park as blocked for retry.
+                if plan.allocs.is_empty() && desired_count(&eval, fsm.state()) > 0 {
+                    queue.block(eval.clone())?;
+                }
                 queue.ack(&eval.id)?;
             },
             Err(e) => {
@@ -300,7 +318,7 @@ mod tests {
         };
         Job {
             name: name.to_owned(),
-            task_groups: vec![TaskGroup { name: group.to_owned(), count: 1, tasks: vec![task] }],
+            task_groups: vec![TaskGroup { name: group.to_owned(), count: 1, tasks: vec![task], constraints: vec![] }],
             ..Job::default()
         }
     }
@@ -441,6 +459,34 @@ mod tests {
     }
 
     #[test]
+    fn drain_queue_blocks_unplaceable_eval() {
+        use crate::eval_queue::EvalQueue;
+        let mut fsm = Fsm::new();
+        fsm.apply(Command::UpsertNode(node_with("node1", 100, 128))).unwrap();
+        // Job needs more than the only node has → cannot place.
+        fsm.apply(Command::UpsertJob(job_with("big", "g", 500, 512))).unwrap();
+        let queue = EvalQueue::new();
+        queue.enqueue(eval_for_id("e", "big")).unwrap();
+
+        let placed = drain_queue(&queue, &mut fsm).unwrap();
+
+        assert_eq!(placed, 0);
+        assert_eq!(queue.blocked_len(), 1, "unplaceable eval parked as blocked");
+        assert_eq!(queue.in_flight_len(), 0, "and acked off the in-flight set");
+    }
+
+    #[test]
+    fn drain_queue_does_not_block_when_job_absent() {
+        use crate::eval_queue::EvalQueue;
+        let mut fsm = Fsm::new();
+        let queue = EvalQueue::new();
+        // No such job (e.g. a post-deregister cleanup eval) → nothing to block.
+        queue.enqueue(eval_for_id("e", "ghost")).unwrap();
+        drain_queue(&queue, &mut fsm).unwrap();
+        assert_eq!(queue.blocked_len(), 0);
+    }
+
+    #[test]
     fn process_and_apply_second_eval_respects_first_placement() {
         // Two evals for two single-instance jobs onto one node with room for one.
         let mut fsm = Fsm::new();
@@ -478,6 +524,40 @@ mod tests {
         state.upsert_job(job).unwrap();
         let plan = process_eval(&eval_for("web"), &state);
         assert!(plan.allocs.is_empty());
+    }
+
+    #[test]
+    fn process_eval_skips_node_failing_constraint() {
+        use crate::constraint::Constraint;
+        let mut state = StateStore::new();
+        let mut node = node_with("win1", 1000, 1024);
+        node.attributes.insert("os".to_owned(), "windows".to_owned());
+        state.upsert_node(node).unwrap();
+        let mut job = job_with("web", "g1", 100, 128);
+        job.task_groups[0].constraints =
+            vec![Constraint { left: "os".to_owned(), right: "linux".to_owned(), operand: "=".to_owned() }];
+        state.upsert_job(job).unwrap();
+        let plan = process_eval(&eval_for("web"), &state);
+        assert!(plan.allocs.is_empty(), "windows node fails os=linux constraint");
+    }
+
+    #[test]
+    fn process_eval_steers_to_constraint_satisfying_node() {
+        use crate::constraint::Constraint;
+        let mut state = StateStore::new();
+        let mut win = node_with("win1", 1000, 1024);
+        win.attributes.insert("os".to_owned(), "windows".to_owned());
+        let mut lin = node_with("lin1", 1000, 1024);
+        lin.attributes.insert("os".to_owned(), "linux".to_owned());
+        state.upsert_node(win).unwrap();
+        state.upsert_node(lin).unwrap();
+        let mut job = job_with("web", "g1", 100, 128);
+        job.task_groups[0].constraints =
+            vec![Constraint { left: "os".to_owned(), right: "linux".to_owned(), operand: "=".to_owned() }];
+        state.upsert_job(job).unwrap();
+        let plan = process_eval(&eval_for("web"), &state);
+        assert_eq!(plan.allocs.len(), 1);
+        assert_eq!(plan.allocs[0].node_id, "lin1", "placed only on the linux node");
     }
 
     #[test]

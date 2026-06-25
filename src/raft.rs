@@ -68,9 +68,15 @@ impl RaftNode {
         if !self.is_leader() {
             return Err(crate::error::Error::Runtime("not the leader, cannot propose".to_owned()));
         }
-        // Quorum of one: append == commit. Apply immediately to the FSM.
-        self.fsm.apply(command.clone())?;
-        self.log.push(command);
+        // Quorum of one: append == commit. Append to the log first so the FSM
+        // can never get ahead of the log (a half-applied command would be
+        // unreplayable). Roll the entry back if the FSM rejects it, so the log
+        // never holds a command the FSM wouldn't accept.
+        self.log.push(command.clone());
+        if let Err(e) = self.fsm.apply(command) {
+            self.log.pop();
+            return Err(e);
+        }
         Ok(())
     }
 
@@ -139,6 +145,15 @@ mod tests {
         node.propose(Command::UpsertJob(Job { name: "redis".to_owned(), ..Job::default() })).unwrap();
         assert!(node.state().get_job("redis").is_some());
         assert_eq!(node.committed_index(), 1);
+    }
+
+    #[test]
+    fn rejected_proposal_leaves_no_log_entry() {
+        // A command the FSM rejects must not pollute the log: the log is the
+        // source of truth and must never hold an entry the FSM wouldn't accept.
+        let mut node = RaftNode::bootstrap("n1");
+        assert!(node.propose(Command::DeregisterJob("ghost".to_owned())).is_err());
+        assert_eq!(node.committed_index(), 0, "rejected command is not committed");
     }
 
     #[test]

@@ -21,8 +21,10 @@ pub enum TaskState {
     Pending,
     /// Currently executing.
     Running,
-    /// Finished (successfully or not).
+    /// Finished cleanly (exit code 0).
     Exited,
+    /// Finished unsuccessfully (non-zero exit or killed by signal).
+    Failed,
     /// State could not be determined.
     Unknown,
 }
@@ -152,11 +154,11 @@ impl TaskDriver for ExecDriver {
             // Unknown id, or already reaped by stop_task → treat as finished.
             return Ok(TaskState::Exited);
         };
-        if child.try_wait()?.is_some() {
+        if let Some(status) = child.try_wait()? {
             // Reaped: drop the entry so long-lived agents don't accumulate
             // stale handles. Repeat inspects hit the `None` branch above.
             running.remove(&handle.id);
-            Ok(TaskState::Exited)
+            Ok(if status.success() { TaskState::Exited } else { TaskState::Failed })
         } else {
             Ok(TaskState::Running)
         }
@@ -284,6 +286,14 @@ mod tests {
         // Give the short-lived process a moment to exit.
         std::thread::sleep(std::time::Duration::from_millis(200));
         assert_eq!(driver.inspect_task(&h).unwrap(), TaskState::Exited);
+    }
+
+    #[test]
+    fn exec_driver_inspect_reports_failed_after_nonzero_exit() {
+        let driver = ExecDriver::default();
+        let h = driver.start_task(&task_cmd("false", &[])).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert_eq!(driver.inspect_task(&h).unwrap(), TaskState::Failed);
     }
 
     #[test]

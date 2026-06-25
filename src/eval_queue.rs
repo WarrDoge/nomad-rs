@@ -9,6 +9,7 @@
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::{Arc, MutexGuard};
+use std::time::{Duration, Instant};
 
 use crate::error::Result;
 use crate::eval::Evaluation;
@@ -31,6 +32,9 @@ struct PendingEval {
     /// across `nack` re-enqueues so the delivery cap is enforced. Does not
     /// affect ordering.
     dequeues: u32,
+    /// When this eval was last handed out via `dequeue`; `None` while pending.
+    /// Used by `reap_expired` to detect evals whose worker died mid-flight.
+    dequeued_at: Option<Instant>,
 }
 
 impl Eq for PendingEval {}
@@ -121,7 +125,7 @@ impl EvalQueue {
         let mut inner = self.lock()?;
         let seq = inner.next_seq;
         inner.next_seq += 1;
-        inner.heap.push(PendingEval { seq, eval, dequeues: 0 });
+        inner.heap.push(PendingEval { seq, eval, dequeues: 0, dequeued_at: None });
         Ok(())
     }
 
@@ -138,6 +142,7 @@ impl EvalQueue {
         let mut inner = self.lock()?;
         let Some(mut pe) = inner.heap.pop() else { return Ok(None) };
         pe.dequeues += 1;
+        pe.dequeued_at = Some(Instant::now());
         let eval = pe.eval.clone();
         inner.in_flight.insert(eval.id.clone(), pe);
         Ok(Some(eval))
@@ -168,10 +173,41 @@ impl EvalQueue {
                 let seq = inner.next_seq;
                 inner.next_seq += 1;
                 // Fresh seq: re-delivered after the current backlog, not ahead of it.
-                inner.heap.push(PendingEval { seq, eval: pe.eval, dequeues: pe.dequeues });
+                inner.heap.push(PendingEval { seq, eval: pe.eval, dequeues: pe.dequeues, dequeued_at: None });
             }
         }
         Ok(())
+    }
+
+    /// Reap in-flight evals whose worker has gone silent: any eval handed out
+    /// more than `timeout` ago is treated as a dead delivery and re-enqueued
+    /// (or dropped if it has hit the delivery cap, same as [`EvalQueue::nack`]).
+    /// Returns how many were reaped out of the in-flight set.
+    ///
+    /// Call periodically from the scheduler housekeeping loop so a crashed
+    /// worker's evals don't linger in-flight forever.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the internal mutex is poisoned.
+    pub fn reap_expired(&self, timeout: Duration) -> Result<usize> {
+        let mut inner = self.lock()?;
+        let expired: Vec<String> = inner
+            .in_flight
+            .iter()
+            .filter(|(_, pe)| pe.dequeued_at.is_some_and(|t| t.elapsed() >= timeout))
+            .map(|(id, _)| id.clone())
+            .collect();
+        let reaped = expired.len();
+        for id in expired {
+            let Some(pe) = inner.in_flight.remove(&id) else { continue };
+            if pe.dequeues < MAX_DEQUEUE {
+                let seq = inner.next_seq;
+                inner.next_seq += 1;
+                inner.heap.push(PendingEval { seq, eval: pe.eval, dequeues: pe.dequeues, dequeued_at: None });
+            }
+        }
+        Ok(reaped)
     }
 
     /// The number of evals dequeued but not yet acked.
@@ -207,7 +243,7 @@ impl EvalQueue {
         for eval in drained {
             let seq = inner.next_seq;
             inner.next_seq += 1;
-            inner.heap.push(PendingEval { seq, eval, dequeues: 0 });
+            inner.heap.push(PendingEval { seq, eval, dequeues: 0, dequeued_at: None });
         }
         Ok(moved)
     }
@@ -389,6 +425,49 @@ mod tests {
         assert_eq!(q.blocked_len(), 0);
         assert_eq!(q.len(), 1, "now pending");
         assert_eq!(q.dequeue().unwrap().unwrap().id, "b1");
+    }
+
+    #[test]
+    fn reap_expired_re_enqueues_stale_in_flight() {
+        use std::time::Duration;
+        let q = EvalQueue::new();
+        q.enqueue(pending_eval("e1", 50)).unwrap();
+        q.dequeue().unwrap().unwrap();
+        assert_eq!(q.in_flight_len(), 1);
+        // Zero timeout: anything in-flight counts as expired.
+        let reaped = q.reap_expired(Duration::ZERO).unwrap();
+        assert_eq!(reaped, 1);
+        assert_eq!(q.in_flight_len(), 0, "removed from in-flight");
+        assert_eq!(q.len(), 1, "back on the pending heap");
+        assert_eq!(q.dequeue().unwrap().unwrap().id, "e1", "redelivered");
+    }
+
+    #[test]
+    fn reap_expired_keeps_fresh_in_flight() {
+        use std::time::Duration;
+        let q = EvalQueue::new();
+        q.enqueue(pending_eval("e1", 50)).unwrap();
+        q.dequeue().unwrap().unwrap();
+        // Large timeout: nothing has been in-flight that long.
+        let reaped = q.reap_expired(Duration::from_secs(3600)).unwrap();
+        assert_eq!(reaped, 0);
+        assert_eq!(q.in_flight_len(), 1, "still in flight");
+        assert_eq!(q.len(), 0, "not re-enqueued");
+    }
+
+    #[test]
+    fn reap_expired_drops_eval_past_delivery_cap() {
+        use std::time::Duration;
+        let q = EvalQueue::new();
+        q.enqueue(pending_eval("e1", 50)).unwrap();
+        // Dequeue then reap repeatedly; each reap counts as a failed delivery.
+        for _ in 0..MAX_DEQUEUE {
+            q.dequeue().unwrap().unwrap();
+            q.reap_expired(Duration::ZERO).unwrap();
+        }
+        assert_eq!(q.len(), 0, "exceeded delivery cap, not re-enqueued");
+        assert_eq!(q.in_flight_len(), 0);
+        assert!(q.dequeue().unwrap().is_none());
     }
 
     #[test]

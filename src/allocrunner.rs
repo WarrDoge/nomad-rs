@@ -39,6 +39,32 @@ impl AllocRunner {
         self.alloc.client_status
     }
 
+    /// Poll the tasks and roll their live states up into the alloc's client
+    /// status: any failed task fails the alloc; otherwise once every task has
+    /// exited cleanly the alloc is [`ClientStatus::Complete`]. Terminal statuses
+    /// ([`ClientStatus::Complete`]/[`ClientStatus::Failed`]) are sticky. A
+    /// supervisor loop calls this periodically to observe tasks that exit on
+    /// their own.
+    ///
+    /// ponytail: no restart policy — a failed task fails the alloc outright.
+    /// Wire `reschedule::RestartPolicy` in to retry before giving up.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any task cannot be polled.
+    pub fn refresh_status(&mut self) -> Result<ClientStatus> {
+        if matches!(self.alloc.client_status, ClientStatus::Complete | ClientStatus::Failed) {
+            return Ok(self.alloc.client_status);
+        }
+        let states = self.task_states()?;
+        if states.contains(&TaskState::Failed) {
+            self.alloc.client_status = ClientStatus::Failed;
+        } else if !states.is_empty() && states.iter().all(|s| *s == TaskState::Exited) {
+            self.alloc.client_status = ClientStatus::Complete;
+        }
+        Ok(self.alloc.client_status)
+    }
+
     /// Poll each task runner for its current driver state.
     ///
     /// # Errors
@@ -146,6 +172,47 @@ mod tests {
         assert_eq!(r.status(), ClientStatus::Failed);
         // The first task was started then rolled back → not left running.
         assert_eq!(r.task_states().unwrap()[0], TaskState::Exited);
+    }
+
+    fn quick_task() -> Task {
+        // exits 0 immediately
+        let mut config = HashMap::new();
+        config.insert("command".to_owned(), serde_json::json!("true"));
+        Task { name: "q".to_owned(), driver: "exec".to_owned(), config, resources: Resources::default() }
+    }
+
+    #[test]
+    fn refresh_status_rolls_up_to_complete_when_all_tasks_exit() {
+        let mut r = AllocRunner::new(alloc(), vec![quick_task()]);
+        r.run().unwrap();
+        assert_eq!(r.status(), ClientStatus::Running);
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert_eq!(r.refresh_status().unwrap(), ClientStatus::Complete);
+        assert_eq!(r.status(), ClientStatus::Complete, "rollup persisted on the alloc");
+    }
+
+    fn failing_task() -> Task {
+        // exits non-zero immediately
+        let mut config = HashMap::new();
+        config.insert("command".to_owned(), serde_json::json!("false"));
+        Task { name: "f".to_owned(), driver: "exec".to_owned(), config, resources: Resources::default() }
+    }
+
+    #[test]
+    fn refresh_status_rolls_up_to_failed_when_a_task_fails() {
+        let mut r = AllocRunner::new(alloc(), vec![failing_task()]);
+        r.run().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert_eq!(r.refresh_status().unwrap(), ClientStatus::Failed);
+        assert_eq!(r.status(), ClientStatus::Failed, "failure persisted on the alloc");
+    }
+
+    #[test]
+    fn refresh_status_stays_running_while_a_task_lives() {
+        let mut r = AllocRunner::new(alloc(), vec![sleep_task()]);
+        r.run().unwrap();
+        assert_eq!(r.refresh_status().unwrap(), ClientStatus::Running);
+        r.destroy().unwrap();
     }
 
     #[test]

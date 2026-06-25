@@ -9,6 +9,7 @@
 use crate::driver::{ExecDriver, TaskDriver, TaskHandle, TaskState};
 use crate::error::{Error, Result};
 use crate::jobspec::Task;
+use crate::reschedule::{RestartMode, RestartPolicy};
 
 /// Drives one task's lifecycle on a node.
 ///
@@ -27,13 +28,33 @@ pub struct TaskRunner {
     state: TaskState,
     /// How many times the task has been restarted.
     restart_count: u32,
+    /// Governs in-place restarts on failure.
+    restart_policy: RestartPolicy,
 }
 
 impl TaskRunner {
-    /// Create a runner for `task`.
+    /// Create a runner for `task` with the default restart policy (upstream
+    /// Nomad's default: 2 attempts in 30 min, then fail the alloc).
     #[must_use]
     pub fn new(task: Task) -> Self {
-        Self { task, driver: ExecDriver::default(), handle: None, state: TaskState::Pending, restart_count: 0 }
+        Self {
+            task,
+            driver: ExecDriver::default(),
+            handle: None,
+            state: TaskState::Pending,
+            restart_count: 0,
+            restart_policy: RestartPolicy { attempts: 2, interval_secs: 1800, delay_secs: 15, mode: RestartMode::Fail },
+        }
+    }
+
+    /// Override the restart policy (builder style).
+    ///
+    /// ponytail: plumb this from the task group's `restart` block once jobspec
+    /// carries one; today every runner uses the default.
+    #[must_use]
+    pub fn with_restart_policy(mut self, policy: RestartPolicy) -> Self {
+        self.restart_policy = policy;
+        self
     }
 
     /// Current driver-reported state of the task.
@@ -74,6 +95,12 @@ impl TaskRunner {
     ///
     /// Returns an error if the driver cannot inspect the task.
     pub fn poll(&mut self) -> Result<TaskState> {
+        // Terminal states are sticky: a reaped child is dropped from the driver,
+        // so re-inspecting it would report `Exited` and silently downgrade a
+        // recorded `Failed`. Don't re-inspect once terminal.
+        if matches!(self.state, TaskState::Exited | TaskState::Failed) {
+            return Ok(self.state);
+        }
         if let Some(handle) = &self.handle {
             self.state = self.driver.inspect_task(handle)?;
         }
@@ -95,16 +122,28 @@ impl TaskRunner {
 
     /// Handle task exit; returns whether it will be restarted per the restart
     /// policy. `success` is whether the task exited zero.
+    ///
+    /// A clean exit is terminal. A failure restarts while under the policy's
+    /// `attempts` cap; once exhausted the task is marked [`TaskState::Failed`]
+    /// (the alloc then fails and the scheduler can reschedule it).
+    ///
+    /// ponytail: counts lifetime attempts, not a sliding `interval_secs` window,
+    /// and ignores `delay_secs`/`RestartMode::Delay` (no timer yet). Add a clock
+    /// when restart timing matters.
     #[must_use]
     pub fn handle_exit(&mut self, success: bool) -> bool {
-        // ponytail: simple policy — restart on failure, terminal on success.
-        // Full restart-policy evaluation (attempts, interval, delay) added when needed.
         if success {
             self.state = TaskState::Exited;
-            false
-        } else {
+            return false;
+        }
+        if self.restart_count < self.restart_policy.attempts {
             self.restart_count += 1;
+            self.state = TaskState::Pending; // about to be restarted
+            self.handle = None; // drop the dead handle so start() can relaunch
             true
+        } else {
+            self.state = TaskState::Failed;
+            false
         }
     }
 }
@@ -145,6 +184,22 @@ mod tests {
         assert!(!runner().handle_exit(true));
     }
 
+    #[test]
+    fn restart_stops_and_fails_after_attempts_exhausted() {
+        use crate::reschedule::{RestartMode, RestartPolicy};
+        let mut r = runner().with_restart_policy(RestartPolicy {
+            attempts: 1,
+            interval_secs: 60,
+            delay_secs: 0,
+            mode: RestartMode::Fail,
+        });
+        assert!(r.handle_exit(false), "first failure restarts (within attempts)");
+        assert_eq!(r.restart_count(), 1);
+        assert!(!r.handle_exit(false), "attempts exhausted → no more restarts");
+        assert_eq!(r.state(), TaskState::Failed);
+        assert_eq!(r.restart_count(), 1, "exhausted restart is not counted");
+    }
+
     fn runner_cmd(command: &str, args: &[&str]) -> TaskRunner {
         let mut config = HashMap::new();
         config.insert("command".to_owned(), serde_json::json!(command));
@@ -178,6 +233,25 @@ mod tests {
     #[test]
     fn start_with_missing_command_errors() {
         assert!(runner().start().is_err());
+    }
+
+    #[test]
+    fn poll_keeps_failed_sticky() {
+        let mut r = runner_cmd("false", &[]);
+        r.start().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert_eq!(r.poll().unwrap(), TaskState::Failed);
+        assert_eq!(r.poll().unwrap(), TaskState::Failed, "terminal failure must not downgrade to Exited");
+    }
+
+    #[test]
+    fn restart_clears_handle_so_task_can_relaunch() {
+        let mut r = runner_cmd("true", &[]);
+        r.start().unwrap();
+        assert!(r.handle_exit(false), "first failure restarts");
+        // Handle cleared → start() is allowed again (no "already started").
+        r.start().expect("restart must be able to relaunch");
+        r.stop().unwrap();
     }
 
     #[test]

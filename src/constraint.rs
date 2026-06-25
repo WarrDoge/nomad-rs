@@ -16,7 +16,7 @@ const KNOWN_OPERANDS: &[&str] =
     &["=", "!=", ">", ">=", "<", "<=", "regexp", "version", "set_contains", "distinct_hosts", "distinct_property"];
 
 /// A hard placement rule: a node must satisfy it to be feasible.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Constraint {
     /// Left-hand target, e.g. `"${attr.os.name}"`.
     pub left: String,

@@ -24,8 +24,9 @@ Still empty/partial: `client::run` (no loop yet), `raw_exec`/`docker` drivers
 
 ### Real backlog (priority order)
 
-1. **Ranking** — bin-pack/spread scoring + wire `constraint`/`Affinity` into
-   `scheduler::node_fits` (first-fit only today).
+1. **Ranking** — bin-pack/spread scoring + wire `Affinity` into placement
+   (first-fit only today). Hard `Constraint`s now filter candidates in
+   `process_eval`; scoring/affinity still TBD.
 2. **Multi-node raft** — replication + election (pick `raft-rs`); persist log via
    `raft_log`. Unblocks a real cluster.
 3. **mTLS + cluster wiring** — wrap the RPC stream in `tls::TlsConfig` →
@@ -33,11 +34,14 @@ Still empty/partial: `client::run` (no loop yet), `raw_exec`/`docker` drivers
    dials a server via `RpcClient` and runs allocs; client auto-forward on
    `NotLeader{leader_addr}`.
 4. **Driver depth** — isolation (cgroups/namespaces, Linux); real `raw_exec`/
-   `docker` backends; live status rollup + restart-policy supervision.
+   `docker` backends; restart-policy supervision. (Live status rollup done —
+   `AllocRunner::refresh_status`, incl. `Failed` on task crash via
+   `TaskState::Failed`.)
 5. **Membership failure detection** — periodic ping/ack (Suspect→Failed),
    indirect probes, self-refutation.
-6. **Server housekeeping** — eval visibility-timeout reaping; auto `unblock_all`
-   on node change; heartbeat/TTL dead-node reaping; GC (jobs/evals/allocs/nodes).
+6. **Server housekeeping** — heartbeat/TTL dead-node reaping; GC (jobs/evals/
+   allocs/nodes). (Done: eval visibility-timeout reaping —
+   `EvalQueue::reap_expired`; auto `unblock_all` on `NodeRegister`.)
 
 **Still unspecced:** CSI volume plugin lifecycle, Consul/Vault internals,
 Sentinel/quota (ENT), event stream, autopilot, multi-region federation, native
@@ -84,12 +88,12 @@ specced, behaviour stubbed · `[ ]` not started.
 
 ### Scheduling Engine
 - [x] Evaluation loop (dequeue + process) — `server::scheduler_worker` async background loop: leader-gated dequeue → `process_eval` → commit plan via `raft.propose` → ack/nack (started/stopped by `Server::run`/`stop`). `scheduler::drain_queue` keeps the synchronous one-pass variant. `eval_queue::EvalQueue` real
-- [x] Eval broker — `eval_queue::EvalQueue`: priority enqueue/dequeue + ack/nack/in-flight (`MAX_DEQUEUE=3` delivery cap). Visibility-timeout reaping of dead-worker evals TBD
-- [x] Blocked-eval tracker — `eval_queue::{block,unblock_all,blocked_len}` park evals + bulk re-enqueue. Auto-trigger on node capacity change TBD (needs #8 worker)
+- [x] Eval broker — `eval_queue::EvalQueue`: priority enqueue/dequeue + ack/nack/in-flight (`MAX_DEQUEUE=3` delivery cap) + `reap_expired` visibility-timeout reaping (wired into `scheduler_worker`, 60s)
+- [x] Blocked-eval tracker — `eval_queue::{block,unblock_all,blocked_len}` park evals + bulk re-enqueue, auto-triggered on `NodeRegister` in `RpcEndpoint`
 - [ ] Plan queue + plan applier (serialize plans through the leader)
 - [ ] Scheduler types — service / batch / system / sysbatch (distinct placement logic)
 - [ ] Scheduler worker pool (concurrent eval processing)
-- [x] Feasibility checking (resources) — `scheduler::node_fits` real: ready/eligible/not-draining + cpu/mem fit after subtracting live allocs. Affinities/constraints not yet wired in
+- [x] Feasibility checking (resources) — `scheduler::node_fits` real: ready/eligible/not-draining + cpu/mem fit after subtracting live allocs + hard `Constraint`s (`TaskGroup.constraints` filtered via `satisfied_by`). Affinities not yet wired in
 - [ ] Ranking (bin packing, spread, scoring)
 - [ ] Preemption (evict lower-priority allocs to place higher)
 - [x] Allocation plan generation and apply — `scheduler::Plan` + `process_eval` (gen) + `apply_plan`/`process_and_apply`/`drain_queue` (apply via `fsm`). Leader/Raft routing still TBD
@@ -105,8 +109,8 @@ specced, behaviour stubbed · `[ ]` not started.
 ## Phase 3: Client ◐ (types specced, no task ever actually runs)
 
 ### Task Runner
-- [x] Task lifecycle (received → running → dead) — `taskrunner` drives a real `ExecDriver` (start/poll/stop); `allocrunner` spawns one `TaskRunner` per task, `run`/`destroy` start/stop them. Live status rollup + restart supervision still TBD
-- [~] Restart policy implementation — `reschedule::RestartPolicy`, `taskrunner::handle_exit`
+- [x] Task lifecycle (received → running → dead) — `taskrunner` drives a real `ExecDriver` (start/poll/stop); `allocrunner` spawns one `TaskRunner` per task, `run`/`destroy` start/stop them + `refresh_status` rolls live task states up (`Failed` on any task crash, else `Complete` when all exit). Restart-policy supervision still TBD
+- [x] Restart policy implementation — `taskrunner::handle_exit` enforces `RestartPolicy::attempts` (restart under cap, `Failed` once exhausted). Sliding `interval_secs` window + `delay_secs`/`RestartMode::Delay` timing TBD (no clock yet)
 - [~] Task health checking — `service::ServiceCheck`
 - [~] Artifact download (HTTP(S), S3, Git) — `artifact::Getter` trait
 - [ ] Client-side alloc garbage collection (disk pressure + terminal alloc cleanup)
@@ -139,7 +143,7 @@ specced, behaviour stubbed · `[ ]` not started.
 
 ### Supported Job Features
 - [x] Task groups with count scaling — `jobspec::TaskGroup` (count validation)
-- [~] Constraints (hard + soft) — `constraint::Constraint`
+- [x] Constraints (hard) — `constraint::Constraint` wired into `process_eval` via `TaskGroup.constraints`. Soft (affinity) TBD
 - [~] Affinities — `constraint::Affinity`
 - [~] Spread (per-datacenter, per-node, etc.) — `constraint::Spread`
 - [~] Network resources (ports, DNS, static IPs) — `network::{NetworkResource,Port}`
