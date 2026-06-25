@@ -123,6 +123,7 @@ impl ClientState {
             TaskState::Pending => "pending",
             TaskState::Running => "running",
             TaskState::Exited => "exited",
+            TaskState::Failed => "failed",
             TaskState::Unknown => "unknown",
         };
         self.conn.execute(
