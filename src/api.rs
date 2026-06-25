@@ -247,7 +247,7 @@ mod tests {
         state.upsert_job(Job { name: "redis".to_owned(), priority: 50, ..Job::default() }).unwrap();
         state
             .upsert_node(Node {
-                id: "n1".to_owned(),
+                id: "n1".into(),
                 name: "node-1".to_owned(),
                 datacenter: "dc1".to_owned(),
                 node_class: String::new(),
@@ -261,10 +261,10 @@ mod tests {
             .unwrap();
         state
             .upsert_alloc(Allocation {
-                id: "a1".to_owned(),
-                eval_id: "e1".to_owned(),
-                node_id: "n1".to_owned(),
-                job_id: "redis".to_owned(),
+                id: "a1".into(),
+                eval_id: "e1".into(),
+                node_id: "n1".into(),
+                job_id: "redis".into(),
                 task_group: "cache".to_owned(),
                 desired_status: DesiredStatus::Run,
                 client_status: ClientStatus::Running,
@@ -273,8 +273,8 @@ mod tests {
             .unwrap();
         state
             .upsert_eval(Evaluation {
-                id: "e1".to_owned(),
-                job_id: "redis".to_owned(),
+                id: "e1".into(),
+                job_id: "redis".into(),
                 priority: 50,
                 trigger: EvalTrigger::JobRegister,
                 status: EvalStatus::Pending,

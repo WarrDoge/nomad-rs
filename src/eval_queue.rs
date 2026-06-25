@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use crate::error::Result;
 use crate::eval::Evaluation;
+use crate::id::EvalId;
 
 /// Maximum number of times an eval is delivered before a `nack` drops it
 /// instead of re-enqueuing (upstream Nomad's `MAX_DEQUEUE`, default 3). Guards
@@ -71,7 +72,7 @@ struct Inner {
     next_seq: u64,
     /// Evals handed out by `dequeue` but not yet `ack`ed, keyed by eval id.
     /// A `nack` re-enqueues from here; an `ack` drops the entry.
-    in_flight: HashMap<String, PendingEval>,
+    in_flight: HashMap<EvalId, PendingEval>,
     /// Evals parked because nothing can place them yet (no capacity). Moved
     /// back to `heap` wholesale by `unblock_all` when the cluster changes.
     blocked: Vec<Evaluation>,
@@ -192,7 +193,7 @@ impl EvalQueue {
     /// Returns an error if the internal mutex is poisoned.
     pub fn reap_expired(&self, timeout: Duration) -> Result<usize> {
         let mut inner = self.lock()?;
-        let expired: Vec<String> = inner
+        let expired: Vec<EvalId> = inner
             .in_flight
             .iter()
             .filter(|(_, pe)| pe.dequeued_at.is_some_and(|t| t.elapsed() >= timeout))
@@ -298,8 +299,8 @@ mod tests {
 
     fn pending_eval(id: &str, priority: i32) -> Evaluation {
         Evaluation {
-            id: id.to_owned(),
-            job_id: "redis".to_owned(),
+            id: id.into(),
+            job_id: "redis".into(),
             priority,
             trigger: EvalTrigger::JobRegister,
             status: EvalStatus::Pending,

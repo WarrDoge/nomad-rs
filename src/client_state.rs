@@ -74,7 +74,7 @@ impl ClientState {
                 client_status=excluded.client_status,
                 cpu_mhz=excluded.cpu_mhz, memory_mb=excluded.memory_mb, network_mbps=excluded.network_mbps",
             rusqlite::params![
-                alloc.id, alloc.eval_id, alloc.node_id, alloc.job_id, alloc.task_group,
+                alloc.id.as_str(), alloc.eval_id.as_str(), alloc.node_id.as_str(), alloc.job_id.as_str(), alloc.task_group,
                 ds, cs,
                 alloc.resources.cpu_mhz, alloc.resources.memory_mb, alloc.resources.network_mbps,
             ],
@@ -96,10 +96,10 @@ impl ClientState {
             let ds: String = row.get(5)?;
             let cs: String = row.get(6)?;
             Ok(Allocation {
-                id: row.get(0)?,
-                eval_id: row.get(1)?,
-                node_id: row.get(2)?,
-                job_id: row.get(3)?,
+                id: row.get::<_, String>(0)?.into(),
+                eval_id: row.get::<_, String>(1)?.into(),
+                node_id: row.get::<_, String>(2)?.into(),
+                job_id: row.get::<_, String>(3)?.into(),
                 task_group: row.get(4)?,
                 desired_status: parse_desired_status(&ds),
                 client_status: parse_client_status(&cs),
@@ -175,10 +175,10 @@ mod tests {
 
     fn test_alloc(id: &str) -> Allocation {
         Allocation {
-            id: id.to_owned(),
-            eval_id: "e1".to_owned(),
-            node_id: "n1".to_owned(),
-            job_id: "redis".to_owned(),
+            id: id.into(),
+            eval_id: "e1".into(),
+            node_id: "n1".into(),
+            job_id: "redis".into(),
             task_group: "cache".to_owned(),
             desired_status: DesiredStatus::Run,
             client_status: ClientStatus::Running,

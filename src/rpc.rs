@@ -13,6 +13,7 @@ use crate::error::{Error, Result};
 use crate::eval::{EvalStatus, EvalTrigger, Evaluation};
 use crate::eval_queue::EvalQueue;
 use crate::fsm::Command;
+use crate::id::EvalId;
 use crate::jobspec::Job;
 use crate::node::Node;
 use crate::raft::RaftNode;
@@ -49,7 +50,7 @@ pub enum Response {
     /// A job was registered; an evaluation was created.
     JobRegistered {
         /// Id of the evaluation created for the registration.
-        eval_id: String,
+        eval_id: EvalId,
     },
     /// The request was applied with no payload.
     Ack,
@@ -129,7 +130,7 @@ impl RpcEndpoint {
                 let eval_id = eval_id_for(&name);
                 let eval = Evaluation {
                     id: eval_id.clone(),
-                    job_id: name,
+                    job_id: name.into(),
                     priority,
                     trigger: EvalTrigger::JobRegister,
                     status: EvalStatus::Pending,
@@ -144,7 +145,7 @@ impl RpcEndpoint {
                 // Enqueue a cleanup eval so the scheduler stops the allocs.
                 self.eval_queue.enqueue(Evaluation {
                     id: eval_id_for(&name),
-                    job_id: name,
+                    job_id: name.into(),
                     priority: 50,
                     trigger: EvalTrigger::JobDeregister,
                     status: EvalStatus::Pending,
@@ -173,12 +174,13 @@ impl RpcEndpoint {
 
 /// A non-deterministic eval id (nanosecond timestamp); tests must not assert
 /// on its exact value.
-fn eval_id_for(job_name: &str) -> String {
+fn eval_id_for(job_name: &str) -> EvalId {
     format!(
         "eval-{}-{}",
         job_name,
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos()
     )
+    .into()
 }
 
 /// Write `msg` as a length-prefixed JSON frame: a 4-byte big-endian length
@@ -377,7 +379,7 @@ mod tests {
     fn node(id: &str) -> Node {
         use crate::node::{NodeStatus, SchedulingEligibility};
         Node {
-            id: id.to_owned(),
+            id: id.into(),
             name: id.to_owned(),
             datacenter: "dc1".to_owned(),
             node_class: String::new(),
@@ -402,8 +404,8 @@ mod tests {
         let q = EvalQueue::new();
         let ep = RpcEndpoint::new(q.clone());
         q.block(Evaluation {
-            id: "blocked1".to_owned(),
-            job_id: "web".to_owned(),
+            id: "blocked1".into(),
+            job_id: "web".into(),
             priority: 50,
             trigger: EvalTrigger::JobRegister,
             status: EvalStatus::Pending,

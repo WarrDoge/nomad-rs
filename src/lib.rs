@@ -44,6 +44,9 @@ pub mod volume;
 /// Templates rendered into a task.
 pub mod template;
 
+/// Strongly-typed domain identifiers (`JobId`, `NodeId`, `AllocId`, `EvalId`).
+pub mod id;
+
 /// Cluster node representation and scheduling eligibility.
 pub mod node;
 

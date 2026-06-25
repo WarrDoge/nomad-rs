@@ -32,6 +32,7 @@ use crate::config::Config;
 use crate::error::Result;
 use crate::eval::Evaluation;
 use crate::eval_queue::EvalQueue;
+use crate::id::EvalId;
 use crate::jobspec::Job;
 use crate::rpc::{Request, Response, RpcEndpoint};
 
@@ -58,7 +59,7 @@ impl ClusterHandle {
     /// # Errors
     ///
     /// Delegates to [`RpcEndpoint::handle`].
-    pub fn register_job(&self, name: &str, priority: i32) -> Result<String> {
+    pub fn register_job(&self, name: &str, priority: i32) -> Result<EvalId> {
         let job = Job { name: name.to_owned(), priority, ..Job::default() };
         match self.rpc_endpoint.handle(Request::JobRegister(job))? {
             Response::JobRegistered { eval_id } => Ok(eval_id),

@@ -14,6 +14,7 @@ use std::path::Path;
 use crate::alloc::Allocation;
 use crate::error::Result;
 use crate::eval::Evaluation;
+use crate::id::{AllocId, EvalId, NodeId};
 use crate::jobspec::Job;
 use crate::node::Node;
 
@@ -23,11 +24,11 @@ pub struct StateStore {
     /// Jobs keyed by job name.
     jobs: HashMap<String, Job>,
     /// Nodes keyed by node id.
-    nodes: HashMap<String, Node>,
+    nodes: HashMap<NodeId, Node>,
     /// Allocations keyed by allocation id.
-    allocs: HashMap<String, Allocation>,
+    allocs: HashMap<AllocId, Allocation>,
     /// Evaluations keyed by evaluation id.
-    evals: HashMap<String, Evaluation>,
+    evals: HashMap<EvalId, Evaluation>,
 }
 
 impl StateStore {
@@ -205,7 +206,7 @@ mod tests {
 
     fn node(id: &str) -> Node {
         Node {
-            id: id.to_owned(),
+            id: id.into(),
             name: id.to_owned(),
             datacenter: "dc1".to_owned(),
             node_class: String::new(),
@@ -220,10 +221,10 @@ mod tests {
 
     fn alloc(id: &str, node_id: &str, job_id: &str) -> Allocation {
         Allocation {
-            id: id.to_owned(),
-            eval_id: "e1".to_owned(),
-            node_id: node_id.to_owned(),
-            job_id: job_id.to_owned(),
+            id: id.into(),
+            eval_id: "e1".into(),
+            node_id: node_id.into(),
+            job_id: job_id.into(),
             task_group: "g".to_owned(),
             desired_status: DesiredStatus::Run,
             client_status: ClientStatus::Running,
@@ -233,8 +234,8 @@ mod tests {
 
     fn eval(id: &str) -> Evaluation {
         Evaluation {
-            id: id.to_owned(),
-            job_id: "redis".to_owned(),
+            id: id.into(),
+            job_id: "redis".into(),
             priority: 50,
             trigger: EvalTrigger::JobRegister,
             status: EvalStatus::Pending,

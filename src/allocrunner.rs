@@ -123,10 +123,10 @@ mod tests {
 
     fn alloc() -> Allocation {
         Allocation {
-            id: "a1".to_owned(),
-            eval_id: "e1".to_owned(),
-            node_id: "n1".to_owned(),
-            job_id: "redis".to_owned(),
+            id: "a1".into(),
+            eval_id: "e1".into(),
+            node_id: "n1".into(),
+            job_id: "redis".into(),
             task_group: "cache".to_owned(),
             desired_status: DesiredStatus::Run,
             client_status: ClientStatus::Pending,

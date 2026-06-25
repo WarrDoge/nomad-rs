@@ -31,13 +31,14 @@ fn group_demand(group: &TaskGroup) -> Resources {
 
 /// Free capacity on a node: total minus all non-terminal allocs placed on it.
 fn free_capacity(node: &Node, state: &StateStore) -> Resources {
-    state.allocs_by_node(&node.id).iter().filter(|a| is_live(a.client_status)).fold(node.resources, |free, a| {
-        Resources {
+    state.allocs_by_node(node.id.as_str()).iter().filter(|a| is_live(a.client_status)).fold(
+        node.resources,
+        |free, a| Resources {
             cpu_mhz: free.cpu_mhz - a.resources.cpu_mhz,
             memory_mb: free.memory_mb - a.resources.memory_mb,
             network_mbps: free.network_mbps - a.resources.network_mbps,
-        }
-    })
+        },
+    )
 }
 
 /// An alloc reserves capacity until it reaches a terminal client status.
@@ -64,7 +65,7 @@ fn meets_constraints(node: &Node, group: &TaskGroup) -> bool {
 /// groups; `0` if the job is unknown (e.g. a post-deregister cleanup eval).
 #[must_use]
 pub fn desired_count(eval: &Evaluation, state: &StateStore) -> i32 {
-    state.get_job(&eval.job_id).map_or(0, |j| j.task_groups.iter().map(|g| g.count.max(0)).sum())
+    state.get_job(eval.job_id.as_str()).map_or(0, |j| j.task_groups.iter().map(|g| g.count.max(0)).sum())
 }
 
 /// Process one evaluation into a [`Plan`]: place each instance of each task
@@ -76,7 +77,7 @@ pub fn desired_count(eval: &Evaluation, state: &StateStore) -> i32 {
 #[must_use]
 pub fn process_eval(eval: &Evaluation, state: &StateStore) -> Plan {
     let mut plan = Plan::default();
-    let Some(job) = state.get_job(&eval.job_id) else { return plan };
+    let Some(job) = state.get_job(eval.job_id.as_str()) else { return plan };
     // Eligible nodes paired with their current free capacity; decremented as we
     // reserve placements within this plan.
     let mut free: Vec<(Node, Resources)> = state
@@ -97,10 +98,10 @@ pub fn process_eval(eval: &Evaluation, state: &StateStore) -> Plan {
                 break; // no node has room and satisfies constraints
             };
             plan.allocs.push(Allocation {
-                id: format!("{}-{}", eval.id, plan.allocs.len()),
+                id: format!("{}-{}", eval.id, plan.allocs.len()).into(),
                 eval_id: eval.id.clone(),
                 node_id: node.id.clone(),
-                job_id: job.name.clone(),
+                job_id: job.name.clone().into(),
                 task_group: group.name.clone(),
                 desired_status: DesiredStatus::Run,
                 client_status: ClientStatus::Pending,
@@ -163,10 +164,10 @@ pub fn drain_queue(queue: &crate::eval_queue::EvalQueue, fsm: &mut Fsm) -> Resul
                 if plan.allocs.is_empty() && desired_count(&eval, fsm.state()) > 0 {
                     queue.block(eval.clone())?;
                 }
-                queue.ack(&eval.id)?;
+                queue.ack(eval.id.as_str())?;
             },
             Err(e) => {
-                queue.nack(&eval.id)?;
+                queue.nack(eval.id.as_str())?;
                 return Err(e);
             },
         }
@@ -296,7 +297,7 @@ mod tests {
 
     fn node_with(id: &str, cpu: i32, mem: i32) -> Node {
         Node {
-            id: id.to_owned(),
+            id: id.into(),
             name: "n".to_owned(),
             datacenter: "dc1".to_owned(),
             node_class: String::new(),
@@ -329,8 +330,8 @@ mod tests {
 
     fn eval_for_id(id: &str, job: &str) -> Evaluation {
         Evaluation {
-            id: id.to_owned(),
-            job_id: job.to_owned(),
+            id: id.into(),
+            job_id: job.into(),
             priority: 50,
             trigger: EvalTrigger::JobRegister,
             status: EvalStatus::Pending,
@@ -377,10 +378,10 @@ mod tests {
         // Running alloc already consumes most of node1.
         state
             .upsert_alloc(Allocation {
-                id: "old".to_owned(),
-                eval_id: "e0".to_owned(),
-                node_id: "node1".to_owned(),
-                job_id: "other".to_owned(),
+                id: "old".into(),
+                eval_id: "e0".into(),
+                node_id: "node1".into(),
+                job_id: "other".into(),
                 task_group: "g".to_owned(),
                 desired_status: DesiredStatus::Run,
                 client_status: ClientStatus::Running,
@@ -400,10 +401,10 @@ mod tests {
         // A completed alloc should NOT reserve capacity.
         state
             .upsert_alloc(Allocation {
-                id: "done".to_owned(),
-                eval_id: "e0".to_owned(),
-                node_id: "node1".to_owned(),
-                job_id: "other".to_owned(),
+                id: "done".into(),
+                eval_id: "e0".into(),
+                node_id: "node1".into(),
+                job_id: "other".into(),
                 task_group: "g".to_owned(),
                 desired_status: DesiredStatus::Stop,
                 client_status: ClientStatus::Complete,

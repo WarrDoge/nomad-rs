@@ -9,6 +9,7 @@
 //! specified by the tests; the methods are unimplemented.
 
 use crate::error::Result;
+use crate::id::{EvalId, JobId};
 
 /// Why an evaluation was created (upstream `TriggeredBy`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -83,9 +84,9 @@ impl EvalStatus {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Evaluation {
     /// Unique evaluation identifier (UUID).
-    pub id: String,
+    pub id: EvalId,
     /// Job this evaluation concerns.
-    pub job_id: String,
+    pub job_id: JobId,
     /// Scheduling priority, inherited from the job (1..=100).
     pub priority: i32,
     /// Why the evaluation was created.
@@ -135,8 +136,8 @@ mod tests {
 
     fn pending_eval() -> Evaluation {
         Evaluation {
-            id: "33333333-3333-3333-3333-333333333333".to_owned(),
-            job_id: "redis".to_owned(),
+            id: "33333333-3333-3333-3333-333333333333".into(),
+            job_id: "redis".into(),
             priority: JOB_DEFAULT_PRIORITY,
             trigger: EvalTrigger::JobRegister,
             status: EvalStatus::Pending,
@@ -183,7 +184,7 @@ mod tests {
     #[test]
     fn eval_rejects_empty_job_id() {
         let mut e = pending_eval();
-        e.job_id = String::new();
+        e.job_id = JobId::default();
         assert!(e.validate().is_err());
     }
 
