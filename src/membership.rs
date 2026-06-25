@@ -2,7 +2,7 @@
 
 //! Cluster membership / gossip — Apache-clean, in-tree.
 //!
-//! [`GossipMembership`] is a SWIM-lite implementation over tokio UDP: nodes
+//! [`GossipMembership`](crate::membership::GossipMembership) is a SWIM-lite implementation over tokio UDP: nodes
 //! exchange their full roster on `join` (push-pull) and disseminate status
 //! changes (e.g. a graceful `leave`) via gossip datagrams. Conflicting updates
 //! about the same member are ordered by a per-member incarnation number; a node

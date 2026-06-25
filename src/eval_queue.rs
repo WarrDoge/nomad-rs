@@ -148,7 +148,7 @@ impl EvalQueue {
     }
 
     /// Negatively acknowledge an in-flight eval: re-enqueue it for another
-    /// attempt, unless it has already been delivered [`MAX_DEQUEUE`] times, in
+    /// attempt, unless it has already been delivered `MAX_DEQUEUE` times, in
     /// which case it is dropped (treated as failed). Unknown ids are a no-op.
     ///
     /// # Errors

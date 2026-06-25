@@ -6,7 +6,7 @@
 //! is the authoritative cluster state), an [`EvalQueue`](crate::eval_queue::EvalQueue),
 //! and a background scheduler worker that ties them together: it drains pending
 //! evaluations, places allocations via [`scheduler::process_eval`](crate::scheduler::process_eval),
-//! and commits each plan through Raft. Writes enter via [`Server::endpoint`].
+//! and commits each plan through Raft. Writes enter via [`Server::endpoint`](crate::server::Server::endpoint).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};

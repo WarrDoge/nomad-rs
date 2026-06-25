@@ -4,7 +4,8 @@
 //!
 //! Defines the request/response surface servers expose to nodes and each other,
 //! processed by the in-tree [`RpcEndpoint`](crate::rpc::RpcEndpoint) (forwarding writes
-//! to the leader). [`RpcServer`]/[`RpcClient`] carry [`Request`]/[`Response`]
+//! to the leader). [`RpcServer`](crate::rpc::RpcServer)/[`RpcClient`](crate::rpc::RpcClient)
+//! carry [`Request`](crate::rpc::Request)/[`Response`](crate::rpc::Response)
 //! over a length-prefixed JSON frame on a tokio TCP stream; mTLS is layered by
 //! wrapping the stream (see [`crate::tls`]) — slotted in once cert plumbing exists.
 
