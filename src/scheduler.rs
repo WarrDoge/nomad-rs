@@ -134,12 +134,24 @@ pub fn process_and_apply(eval: &Evaluation, fsm: &mut Fsm) -> Result<Plan> {
 ///
 /// Propagates the first dequeue or apply error.
 ///
-/// ponytail: synchronous drain — one pass, no ack/nack/retry. The async worker
-/// loop with leader leasing is backlog #8.
+/// Each eval is `ack`ed on successful apply or `nack`ed (re-enqueued, up to the
+/// delivery cap) if applying it errors.
+///
+/// ponytail: synchronous drain — one pass. The async worker loop with leader
+/// leasing is backlog #8.
 pub fn drain_queue(queue: &crate::eval_queue::EvalQueue, fsm: &mut Fsm) -> Result<usize> {
     let mut placed = 0;
     while let Some(eval) = queue.dequeue()? {
-        placed += process_and_apply(&eval, fsm)?.allocs.len();
+        match process_and_apply(&eval, fsm) {
+            Ok(plan) => {
+                placed += plan.allocs.len();
+                queue.ack(&eval.id)?;
+            },
+            Err(e) => {
+                queue.nack(&eval.id)?;
+                return Err(e);
+            },
+        }
     }
     Ok(placed)
 }

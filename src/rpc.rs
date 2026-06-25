@@ -4,20 +4,30 @@
 //!
 //! Defines the request/response surface servers expose to nodes and each other,
 //! processed by the in-tree [`RpcEndpoint`](crate::rpc::RpcEndpoint) (forwarding writes
-//! to the leader). A real wire transport (custom-over-mTLS, gRPC, ...) replaces
-//! its body later. Behaviour is specified by the tests and is unimplemented.
+//! to the leader). [`RpcServer`]/[`RpcClient`] carry [`Request`]/[`Response`]
+//! over a length-prefixed JSON frame on a tokio TCP stream; mTLS is layered by
+//! wrapping the stream (see [`crate::tls`]) — slotted in once cert plumbing exists.
 
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::eval::{EvalStatus, EvalTrigger, Evaluation};
 use crate::eval_queue::EvalQueue;
 use crate::fsm::Command;
 use crate::jobspec::Job;
 use crate::node::Node;
 use crate::raft::RaftNode;
+use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::{TcpListener, TcpStream};
+
+/// Hard cap on a single RPC frame (8 MiB). The length prefix is network-supplied
+/// and untrusted; a claim larger than this is rejected rather than allocated, so
+/// a malicious or corrupt peer cannot induce a huge buffer allocation.
+const MAX_FRAME: usize = 8 * 1024 * 1024;
 
 /// A request a server can handle.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Request {
     /// Register or update a job.
     JobRegister(Job),
@@ -33,7 +43,7 @@ pub enum Request {
 }
 
 /// A response to a [`Request`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Response {
     /// A job was registered; an evaluation was created.
     JobRegistered {
@@ -168,6 +178,130 @@ fn eval_id_for(job_name: &str) -> String {
     )
 }
 
+/// Write `msg` as a length-prefixed JSON frame: a 4-byte big-endian length
+/// followed by that many bytes of JSON.
+///
+/// # Errors
+///
+/// Returns an error if serialisation fails, the frame exceeds [`MAX_FRAME`], or
+/// the underlying write fails.
+async fn write_frame<W, T>(w: &mut W, msg: &T) -> Result<()>
+where
+    W: AsyncWriteExt + Unpin,
+    T: Serialize,
+{
+    let bytes = serde_json::to_vec(msg)?;
+    if bytes.len() > MAX_FRAME {
+        return Err(Error::Runtime("rpc frame exceeds maximum size".to_owned()));
+    }
+    let len = u32::try_from(bytes.len()).map_err(|_| Error::Runtime("rpc frame length overflow".to_owned()))?;
+    w.write_all(&len.to_be_bytes()).await?;
+    w.write_all(&bytes).await?;
+    w.flush().await?;
+    Ok(())
+}
+
+/// Read one length-prefixed JSON frame. Returns `Ok(None)` on a clean
+/// end-of-stream before any bytes of a new frame (peer closed the connection).
+///
+/// # Errors
+///
+/// Returns an error on a partial frame, a length over [`MAX_FRAME`], or a
+/// deserialisation failure.
+async fn read_frame<R, T>(r: &mut R) -> Result<Option<T>>
+where
+    R: AsyncReadExt + Unpin,
+    T: DeserializeOwned,
+{
+    let mut len_buf = [0u8; 4];
+    if let Err(e) = r.read_exact(&mut len_buf).await {
+        if e.kind() == std::io::ErrorKind::UnexpectedEof {
+            return Ok(None);
+        }
+        return Err(e.into());
+    }
+    let len = u32::from_be_bytes(len_buf) as usize;
+    if len > MAX_FRAME {
+        return Err(Error::Runtime("rpc frame exceeds maximum size".to_owned()));
+    }
+    let mut buf = vec![0u8; len];
+    r.read_exact(&mut buf).await?;
+    Ok(Some(serde_json::from_slice(&buf)?))
+}
+
+/// A TCP RPC server: accepts connections and dispatches framed [`Request`]s
+/// through a shared [`RpcEndpoint`], writing back each [`Response`].
+#[derive(Debug, Clone)]
+pub struct RpcServer {
+    /// The endpoint requests are dispatched through.
+    endpoint: Arc<RpcEndpoint>,
+}
+
+impl RpcServer {
+    /// Create a server over the given endpoint.
+    #[must_use]
+    pub fn new(endpoint: Arc<RpcEndpoint>) -> Self {
+        Self { endpoint }
+    }
+
+    /// Accept connections on `listener` forever, serving each on its own task.
+    /// Loops until the task is dropped/aborted by the caller.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if accepting a connection fails fatally.
+    pub async fn serve(&self, listener: TcpListener) -> Result<()> {
+        loop {
+            let (stream, _peer) = listener.accept().await?;
+            let endpoint = Arc::clone(&self.endpoint);
+            tokio::spawn(serve_conn(stream, endpoint));
+        }
+    }
+}
+
+/// Serve a single connection: read requests until the peer closes, dispatching
+/// each through `endpoint`. A handler error closes the connection.
+///
+/// ponytail: a handler error closes the conn rather than returning a typed error
+/// frame — add a `Response::Error` variant if clients need the failure reason.
+async fn serve_conn(mut stream: TcpStream, endpoint: Arc<RpcEndpoint>) {
+    while let Ok(Some(req)) = read_frame::<_, Request>(&mut stream).await {
+        let Ok(resp) = endpoint.handle(req) else { break };
+        if write_frame(&mut stream, &resp).await.is_err() {
+            break;
+        }
+    }
+}
+
+/// A TCP RPC client: one connection, one request/response at a time.
+#[derive(Debug)]
+pub struct RpcClient {
+    /// The open connection to a server.
+    stream: TcpStream,
+}
+
+impl RpcClient {
+    /// Connect to a server at `addr` (`host:port`).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the connection cannot be established.
+    pub async fn connect(addr: &str) -> Result<Self> {
+        Ok(Self { stream: TcpStream::connect(addr).await? })
+    }
+
+    /// Send `request` and await the server's response.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the write fails, the connection closes before a
+    /// response, or a frame is malformed.
+    pub async fn call(&mut self, request: &Request) -> Result<Response> {
+        write_frame(&mut self.stream, request).await?;
+        read_frame(&mut self.stream).await?.ok_or_else(|| Error::Runtime("rpc connection closed by server".to_owned()))
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::missing_docs_in_private_items, clippy::wildcard_imports, reason = "conventional inline test module")]
 mod tests {
@@ -279,5 +413,70 @@ mod tests {
         let cleanup = q.dequeue().unwrap().expect("cleanup eval enqueued");
         assert_eq!(cleanup.job_id, "web");
         assert_eq!(cleanup.trigger, EvalTrigger::JobDeregister);
+    }
+
+    // ---- wire transport --------------------------------------------------
+
+    async fn spawn_server(endpoint: Arc<RpcEndpoint>) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let server = RpcServer::new(endpoint);
+        tokio::spawn(async move { drop(server.serve(listener).await) });
+        addr
+    }
+
+    #[tokio::test]
+    async fn frame_roundtrips_a_request() {
+        let (mut a, mut b) = tokio::io::duplex(1024);
+        let sent = Request::JobDeregister("x".to_owned());
+        write_frame(&mut a, &sent).await.unwrap();
+        let got: Request = read_frame(&mut b).await.unwrap().unwrap();
+        assert!(matches!(got, Request::JobDeregister(n) if n == "x"));
+    }
+
+    #[tokio::test]
+    async fn read_frame_returns_none_on_clean_close() {
+        let (a, mut b) = tokio::io::duplex(64);
+        drop(a); // peer closes without sending
+        let got: Result<Option<Request>> = read_frame(&mut b).await;
+        assert!(matches!(got, Ok(None)));
+    }
+
+    #[tokio::test]
+    async fn register_job_over_wire_lands_in_fsm() {
+        let endpoint = Arc::new(RpcEndpoint::new(EvalQueue::new()));
+        let addr = spawn_server(Arc::clone(&endpoint)).await;
+        let mut client = RpcClient::connect(&addr).await.unwrap();
+
+        let resp =
+            client.call(&Request::JobRegister(Job { name: "redis".to_owned(), ..Job::default() })).await.unwrap();
+        assert!(matches!(resp, Response::JobRegistered { .. }));
+        assert!(endpoint.raft().lock().unwrap().state().get_job("redis").is_some());
+    }
+
+    #[tokio::test]
+    async fn multiple_requests_share_one_connection() {
+        let endpoint = Arc::new(RpcEndpoint::new(EvalQueue::new()));
+        let addr = spawn_server(Arc::clone(&endpoint)).await;
+        let mut client = RpcClient::connect(&addr).await.unwrap();
+
+        assert!(matches!(client.call(&Request::NodeRegister(node("n1"))).await.unwrap(), Response::Ack));
+        assert!(matches!(
+            client.call(&Request::JobRegister(Job { name: "web".to_owned(), ..Job::default() })).await.unwrap(),
+            Response::JobRegistered { .. }
+        ));
+        // The register enqueued an eval; dequeue it over the same connection.
+        let resp = client.call(&Request::EvalDequeue { schedulers: vec!["service".to_owned()] }).await.unwrap();
+        assert!(matches!(resp, Response::Eval(Some(_))));
+    }
+
+    #[tokio::test]
+    async fn write_on_follower_returns_not_leader_over_wire() {
+        let endpoint = Arc::new(RpcEndpoint::with_raft(EvalQueue::new(), Arc::new(Mutex::new(RaftNode::new("f1")))));
+        let addr = spawn_server(Arc::clone(&endpoint)).await;
+        let mut client = RpcClient::connect(&addr).await.unwrap();
+
+        let resp = client.call(&Request::JobRegister(Job { name: "x".to_owned(), ..Job::default() })).await.unwrap();
+        assert!(matches!(resp, Response::NotLeader { .. }));
     }
 }
