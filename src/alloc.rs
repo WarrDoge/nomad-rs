@@ -7,6 +7,7 @@
 //! are unimplemented.
 
 use crate::error::Result;
+use crate::id::{AllocId, EvalId, JobId, NodeId};
 use crate::jobspec::Resources;
 
 /// Operator/scheduler intent for an allocation.
@@ -72,13 +73,13 @@ impl ClientStatus {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Allocation {
     /// Unique allocation identifier (UUID).
-    pub id: String,
+    pub id: AllocId,
     /// Evaluation that produced this allocation.
-    pub eval_id: String,
+    pub eval_id: EvalId,
     /// Node the allocation is placed on.
-    pub node_id: String,
+    pub node_id: NodeId,
     /// Job the allocation belongs to.
-    pub job_id: String,
+    pub job_id: JobId,
     /// Task group name within the job.
     pub task_group: String,
     /// Desired status (scheduler/operator intent).
@@ -126,10 +127,10 @@ mod tests {
 
     fn running_alloc() -> Allocation {
         Allocation {
-            id: "22222222-2222-2222-2222-222222222222".to_owned(),
-            eval_id: "eval-1".to_owned(),
-            node_id: "node-1".to_owned(),
-            job_id: "redis".to_owned(),
+            id: "22222222-2222-2222-2222-222222222222".into(),
+            eval_id: "eval-1".into(),
+            node_id: "node-1".into(),
+            job_id: "redis".into(),
             task_group: "cache".to_owned(),
             desired_status: DesiredStatus::Run,
             client_status: ClientStatus::Running,
@@ -174,14 +175,14 @@ mod tests {
     #[test]
     fn alloc_rejects_empty_node() {
         let mut a = running_alloc();
-        a.node_id = String::new();
+        a.node_id = NodeId::default();
         assert!(a.validate().is_err());
     }
 
     #[test]
     fn alloc_rejects_empty_job() {
         let mut a = running_alloc();
-        a.job_id = String::new();
+        a.job_id = JobId::default();
         assert!(a.validate().is_err());
     }
 

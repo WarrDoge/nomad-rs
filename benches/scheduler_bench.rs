@@ -27,8 +27,8 @@ fn make_job(name: &str) -> Job {
 
 fn make_eval(id: &str) -> Evaluation {
     Evaluation {
-        id: id.to_owned(),
-        job_id: "bench".to_owned(),
+        id: id.into(),
+        job_id: "bench".into(),
         priority: 50,
         trigger: EvalTrigger::JobRegister,
         status: EvalStatus::Pending,

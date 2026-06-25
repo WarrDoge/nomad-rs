@@ -58,7 +58,7 @@ async fn scheduler_worker(raft: Arc<Mutex<RaftNode>>, queue: EvalQueue, shutdown
     const IDLE: Duration = Duration::from_millis(100);
     /// How long an eval may sit in-flight before a presumed-dead worker's
     /// delivery is reclaimed and redelivered.
-    const VISIBILITY: Duration = Duration::from_secs(60);
+    const VISIBILITY: Duration = Duration::from_mins(1);
     while !shutdown.load(Ordering::Relaxed) {
         if !lock(&raft).is_leader() {
             tokio::time::sleep(IDLE).await;
@@ -85,9 +85,9 @@ async fn scheduler_worker(raft: Arc<Mutex<RaftNode>>, queue: EvalQueue, shutdown
                 if plan.allocs.is_empty() && desired_count(&eval, lock(&raft).state()) > 0 {
                     drop(queue.block(eval.clone()));
                 }
-                drop(queue.ack(&eval.id));
+                drop(queue.ack(eval.id.as_str()));
             },
-            Err(_) => drop(queue.nack(&eval.id)),
+            Err(_) => drop(queue.nack(eval.id.as_str())),
         }
     }
 }
@@ -189,7 +189,7 @@ mod tests {
 
     fn node_with(id: &str, cpu: i32, mem: i32) -> Node {
         Node {
-            id: id.to_owned(),
+            id: id.into(),
             name: id.to_owned(),
             datacenter: "dc1".to_owned(),
             node_class: String::new(),

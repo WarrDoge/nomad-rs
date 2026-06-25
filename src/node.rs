@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 
 use crate::error::Result;
+use crate::id::NodeId;
 use crate::jobspec::Resources;
 
 /// Lifecycle status of a node as tracked by the servers.
@@ -51,7 +52,7 @@ pub enum SchedulingEligibility {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Node {
     /// Unique node identifier (UUID).
-    pub id: String,
+    pub id: NodeId,
     /// Human-readable node name.
     pub name: String,
     /// Datacenter the node belongs to.
@@ -114,7 +115,7 @@ mod tests {
 
     fn ready_node() -> Node {
         Node {
-            id: "11111111-1111-1111-1111-111111111111".to_owned(),
+            id: "11111111-1111-1111-1111-111111111111".into(),
             name: "node1".to_owned(),
             datacenter: "dc1".to_owned(),
             node_class: String::new(),
@@ -143,7 +144,7 @@ mod tests {
     #[test]
     fn node_rejects_empty_id() {
         let mut n = ready_node();
-        n.id = String::new();
+        n.id = NodeId::default();
         assert!(n.validate().is_err());
     }
 
