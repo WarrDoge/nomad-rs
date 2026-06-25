@@ -4,7 +4,7 @@
 //!
 //! The [`RaftLogStore`](crate::raft_log::RaftLogStore) append-commits commands to a
 //! newline-delimited JSON file so the cluster can rebuild state after a restart.
-//! Snapshot support compacts the log: a snapshot stores the full [`StateStore`]
+//! Snapshot support compacts the log: a snapshot stores the full `StateStore`
 //! along with the log index/term it covers, and the log is truncated up to that
 //! point.
 

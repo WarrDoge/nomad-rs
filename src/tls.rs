@@ -2,10 +2,10 @@
 
 //! mTLS configuration for Nomad RPC and HTTP transports.
 //!
-//! Provides [`TlsConfig`] for loading and validating X.509 certificates,
+//! Provides `TlsConfig` for loading and validating X.509 certificates,
 //! private keys, and CA roots.  The module exposes helper functions that
 //! build [`rustls::ServerConfig`] / [`rustls::ClientConfig`] instances
-//! from a [`TlsConfig`]; these can be plugged into a Tokio TCP listener
+//! from a `TlsConfig`; these can be plugged into a Tokio TCP listener
 //! or connector (e.g. via `tokio-rustls`).
 
 use std::path::Path;
@@ -28,7 +28,7 @@ pub struct TlsConfig {
 }
 
 impl TlsConfig {
-    /// Create a new [`TlsConfig`] with the given certificate, key, and CA paths.
+    /// Create a new `TlsConfig` with the given certificate, key, and CA paths.
     #[must_use]
     pub fn new(cert_path: String, key_path: String, ca_path: String) -> Self {
         Self { cert_path, key_path, ca_path }
