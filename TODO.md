@@ -34,7 +34,8 @@ Still empty/partial: `client::run` (no loop yet), `raw_exec`/`docker` drivers
    dials a server via `RpcClient` and runs allocs; client auto-forward on
    `NotLeader{leader_addr}`.
 4. **Driver depth** — isolation (cgroups/namespaces, Linux); real `raw_exec`/
-   `docker` backends; live status rollup + restart-policy supervision.
+   `docker` backends; restart-policy supervision + Failed rollup. (Live
+   status rollup done — `AllocRunner::refresh_status`.)
 5. **Membership failure detection** — periodic ping/ack (Suspect→Failed),
    indirect probes, self-refutation.
 6. **Server housekeeping** — heartbeat/TTL dead-node reaping; GC (jobs/evals/
@@ -107,7 +108,7 @@ specced, behaviour stubbed · `[ ]` not started.
 ## Phase 3: Client ◐ (types specced, no task ever actually runs)
 
 ### Task Runner
-- [x] Task lifecycle (received → running → dead) — `taskrunner` drives a real `ExecDriver` (start/poll/stop); `allocrunner` spawns one `TaskRunner` per task, `run`/`destroy` start/stop them. Live status rollup + restart supervision still TBD
+- [x] Task lifecycle (received → running → dead) — `taskrunner` drives a real `ExecDriver` (start/poll/stop); `allocrunner` spawns one `TaskRunner` per task, `run`/`destroy` start/stop them + `refresh_status` rolls live task states up to `Complete`. Restart supervision + Failed rollup still TBD
 - [~] Restart policy implementation — `reschedule::RestartPolicy`, `taskrunner::handle_exit`
 - [~] Task health checking — `service::ServiceCheck`
 - [~] Artifact download (HTTP(S), S3, Git) — `artifact::Getter` trait
