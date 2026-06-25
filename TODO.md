@@ -37,8 +37,9 @@ Still empty/partial: `client::run` (no loop yet), `raw_exec`/`docker` drivers
    `docker` backends; live status rollup + restart-policy supervision.
 5. **Membership failure detection** — periodic ping/ack (Suspect→Failed),
    indirect probes, self-refutation.
-6. **Server housekeeping** — eval visibility-timeout reaping; auto `unblock_all`
-   on node change; heartbeat/TTL dead-node reaping; GC (jobs/evals/allocs/nodes).
+6. **Server housekeeping** — auto `unblock_all` on node change; heartbeat/TTL
+   dead-node reaping; GC (jobs/evals/allocs/nodes). (Eval visibility-timeout
+   reaping done — `EvalQueue::reap_expired` in `scheduler_worker`.)
 
 **Still unspecced:** CSI volume plugin lifecycle, Consul/Vault internals,
 Sentinel/quota (ENT), event stream, autopilot, multi-region federation, native
@@ -85,7 +86,7 @@ specced, behaviour stubbed · `[ ]` not started.
 
 ### Scheduling Engine
 - [x] Evaluation loop (dequeue + process) — `server::scheduler_worker` async background loop: leader-gated dequeue → `process_eval` → commit plan via `raft.propose` → ack/nack (started/stopped by `Server::run`/`stop`). `scheduler::drain_queue` keeps the synchronous one-pass variant. `eval_queue::EvalQueue` real
-- [x] Eval broker — `eval_queue::EvalQueue`: priority enqueue/dequeue + ack/nack/in-flight (`MAX_DEQUEUE=3` delivery cap). Visibility-timeout reaping of dead-worker evals TBD
+- [x] Eval broker — `eval_queue::EvalQueue`: priority enqueue/dequeue + ack/nack/in-flight (`MAX_DEQUEUE=3` delivery cap) + `reap_expired` visibility-timeout reaping (wired into `scheduler_worker`, 60s)
 - [x] Blocked-eval tracker — `eval_queue::{block,unblock_all,blocked_len}` park evals + bulk re-enqueue. Auto-trigger on node capacity change TBD (needs #8 worker)
 - [ ] Plan queue + plan applier (serialize plans through the leader)
 - [ ] Scheduler types — service / batch / system / sysbatch (distinct placement logic)

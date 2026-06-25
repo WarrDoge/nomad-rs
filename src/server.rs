@@ -54,11 +54,16 @@ fn lock(raft: &Mutex<RaftNode>) -> MutexGuard<'_, RaftNode> {
 async fn scheduler_worker(raft: Arc<Mutex<RaftNode>>, queue: EvalQueue, shutdown: Arc<AtomicBool>) {
     /// Idle delay when there is nothing to do.
     const IDLE: Duration = Duration::from_millis(25);
+    /// How long an eval may sit in-flight before a presumed-dead worker's
+    /// delivery is reclaimed and redelivered.
+    const VISIBILITY: Duration = Duration::from_secs(60);
     while !shutdown.load(Ordering::Relaxed) {
         if !lock(&raft).is_leader() {
             tokio::time::sleep(IDLE).await;
             continue;
         }
+        // Reclaim evals whose worker died mid-flight before draining more.
+        drop(queue.reap_expired(VISIBILITY));
         let eval = match queue.dequeue() {
             Ok(Some(e)) => e,
             Ok(None) => {
