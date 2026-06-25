@@ -77,6 +77,13 @@ struct Inner {
 ///
 /// Queue order is descending by priority.  Equal-priority evals are returned
 /// FIFO (first enqueued, first out).
+///
+/// **Mutex-poison policy:** mutating methods (`enqueue`/`dequeue`/`ack`/`nack`/
+/// `block`/`unblock_all`) surface a poisoned mutex as `Err` so callers can
+/// react. The `usize` introspection helpers (`len`/`in_flight_len`/
+/// `blocked_len`) cannot return `Result` without changing their contract, so
+/// they report `0` on poison; the poison still surfaces on the next mutating
+/// call.
 #[derive(Debug, Clone)]
 pub struct EvalQueue {
     /// Shared mutable state behind a mutex.
@@ -170,6 +177,7 @@ impl EvalQueue {
     /// The number of evals dequeued but not yet acked.
     #[must_use]
     pub fn in_flight_len(&self) -> usize {
+        // 0 on poison; see the struct-level mutex-poison policy.
         self.lock().map_or(0, |g| g.in_flight.len())
     }
 
@@ -207,6 +215,7 @@ impl EvalQueue {
     /// The number of blocked evals waiting for [`EvalQueue::unblock_all`].
     #[must_use]
     pub fn blocked_len(&self) -> usize {
+        // 0 on poison; see the struct-level mutex-poison policy.
         self.lock().map_or(0, |g| g.blocked.len())
     }
 
