@@ -58,7 +58,7 @@ async fn scheduler_worker(raft: Arc<Mutex<RaftNode>>, queue: EvalQueue, shutdown
     const IDLE: Duration = Duration::from_millis(100);
     /// How long an eval may sit in-flight before a presumed-dead worker's
     /// delivery is reclaimed and redelivered.
-    const VISIBILITY: Duration = Duration::from_secs(60);
+    const VISIBILITY: Duration = Duration::from_mins(1);
     while !shutdown.load(Ordering::Relaxed) {
         if !lock(&raft).is_leader() {
             tokio::time::sleep(IDLE).await;

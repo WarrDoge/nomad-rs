@@ -7,7 +7,7 @@ license = "Apache-2.0"
 repository = "https://github.com/WarrDoge/nomad-rs"
 keywords = ["nomad", "scheduler", "orchestration", "cluster", "hashicorp"]
 categories = ["command-line-utilities", "network-programming"]
-rust-version = "1.85"
+rust-version = "1.96.0"
 
 [[bin]]
 name = "nomad-rs"
