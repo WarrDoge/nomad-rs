@@ -53,7 +53,9 @@ fn lock(raft: &Mutex<RaftNode>) -> MutexGuard<'_, RaftNode> {
 /// place cleanly and nacks failures for redelivery. Only the leader schedules.
 async fn scheduler_worker(raft: Arc<Mutex<RaftNode>>, queue: EvalQueue, shutdown: Arc<AtomicBool>) {
     /// Idle delay when there is nothing to do.
-    const IDLE: Duration = Duration::from_millis(25);
+    // ponytail: fixed poll interval. Switch to a notify/condvar wakeup if the
+    // idle wakeup rate (10/s per leader) ever shows up in a profile.
+    const IDLE: Duration = Duration::from_millis(100);
     /// How long an eval may sit in-flight before a presumed-dead worker's
     /// delivery is reclaimed and redelivered.
     const VISIBILITY: Duration = Duration::from_secs(60);
