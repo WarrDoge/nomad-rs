@@ -20,7 +20,7 @@ use crate::eval_queue::EvalQueue;
 use crate::fsm::Command;
 use crate::raft::RaftNode;
 use crate::rpc::RpcEndpoint;
-use crate::scheduler::process_eval;
+use crate::scheduler::{desired_count, process_eval};
 
 /// The possible states a Nomad server can be in.
 pub use crate::agent::AgentStatus as ServerStatus;
@@ -78,7 +78,13 @@ async fn scheduler_worker(raft: Arc<Mutex<RaftNode>>, queue: EvalQueue, shutdown
             plan.allocs.iter().try_for_each(|a| node.propose(Command::UpsertAlloc(a.clone())))
         };
         match committed {
-            Ok(()) => drop(queue.ack(&eval.id)),
+            Ok(()) => {
+                // Wanted placement but got none → park as blocked for retry.
+                if plan.allocs.is_empty() && desired_count(&eval, lock(&raft).state()) > 0 {
+                    drop(queue.block(eval.clone()));
+                }
+                drop(queue.ack(&eval.id));
+            },
             Err(_) => drop(queue.nack(&eval.id)),
         }
     }

@@ -60,6 +60,13 @@ fn meets_constraints(node: &Node, group: &TaskGroup) -> bool {
     group.constraints.iter().all(|c| c.satisfied_by(&node.attributes))
 }
 
+/// Total instances the eval's job currently wants placed across its task
+/// groups; `0` if the job is unknown (e.g. a post-deregister cleanup eval).
+#[must_use]
+pub fn desired_count(eval: &Evaluation, state: &StateStore) -> i32 {
+    state.get_job(&eval.job_id).map_or(0, |j| j.task_groups.iter().map(|g| g.count.max(0)).sum())
+}
+
 /// Process one evaluation into a [`Plan`]: place each instance of each task
 /// group on the first node that still has room, decrementing that node's
 /// running free capacity as allocations are added so a node is never
@@ -152,6 +159,10 @@ pub fn drain_queue(queue: &crate::eval_queue::EvalQueue, fsm: &mut Fsm) -> Resul
         match process_and_apply(&eval, fsm) {
             Ok(plan) => {
                 placed += plan.allocs.len();
+                // Wanted placement but got none → park as blocked for retry.
+                if plan.allocs.is_empty() && desired_count(&eval, fsm.state()) > 0 {
+                    queue.block(eval.clone())?;
+                }
                 queue.ack(&eval.id)?;
             },
             Err(e) => {
@@ -445,6 +456,34 @@ mod tests {
         assert_eq!(placed, 2, "both evals placed one alloc each");
         assert!(queue.dequeue().unwrap().is_none(), "queue drained");
         assert_eq!(fsm.state().list_allocs().len(), 2);
+    }
+
+    #[test]
+    fn drain_queue_blocks_unplaceable_eval() {
+        use crate::eval_queue::EvalQueue;
+        let mut fsm = Fsm::new();
+        fsm.apply(Command::UpsertNode(node_with("node1", 100, 128))).unwrap();
+        // Job needs more than the only node has → cannot place.
+        fsm.apply(Command::UpsertJob(job_with("big", "g", 500, 512))).unwrap();
+        let queue = EvalQueue::new();
+        queue.enqueue(eval_for_id("e", "big")).unwrap();
+
+        let placed = drain_queue(&queue, &mut fsm).unwrap();
+
+        assert_eq!(placed, 0);
+        assert_eq!(queue.blocked_len(), 1, "unplaceable eval parked as blocked");
+        assert_eq!(queue.in_flight_len(), 0, "and acked off the in-flight set");
+    }
+
+    #[test]
+    fn drain_queue_does_not_block_when_job_absent() {
+        use crate::eval_queue::EvalQueue;
+        let mut fsm = Fsm::new();
+        let queue = EvalQueue::new();
+        // No such job (e.g. a post-deregister cleanup eval) → nothing to block.
+        queue.enqueue(eval_for_id("e", "ghost")).unwrap();
+        drain_queue(&queue, &mut fsm).unwrap();
+        assert_eq!(queue.blocked_len(), 0);
     }
 
     #[test]
