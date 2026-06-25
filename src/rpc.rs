@@ -109,16 +109,17 @@ impl RpcEndpoint {
         match request {
             Request::JobRegister(job) => {
                 job.validate()?;
+                let (name, priority) = (job.name.clone(), job.priority);
                 // Commit the job through consensus first; bail with NotLeader
                 // on a follower so the caller can forward.
-                if let Some(resp) = self.commit(Command::UpsertJob(job.clone()))? {
+                if let Some(resp) = self.commit(Command::UpsertJob(job))? {
                     return Ok(resp);
                 }
-                let eval_id = eval_id_for(&job.name);
+                let eval_id = eval_id_for(&name);
                 let eval = Evaluation {
                     id: eval_id.clone(),
-                    job_id: job.name.clone(),
-                    priority: job.priority,
+                    job_id: name,
+                    priority,
                     trigger: EvalTrigger::JobRegister,
                     status: EvalStatus::Pending,
                 };

@@ -46,16 +46,15 @@ fn is_live(status: ClientStatus) -> bool {
     matches!(status, ClientStatus::Pending | ClientStatus::Running)
 }
 
-/// Whether `node` can host `group`: ready, eligible, and enough free capacity
-/// after accounting for allocs already running on it.
-fn node_fits(node: &Node, group: &TaskGroup, state: &StateStore) -> bool {
+/// Whether `node` can host a group demanding `need`: ready, eligible, and
+/// enough free capacity after accounting for allocs already running on it.
+fn node_fits(node: &Node, need: Resources, state: &StateStore) -> bool {
     if node.status != NodeStatus::Ready
         || node.eligibility != SchedulingEligibility::Eligible
         || node.draining
     {
         return false;
     }
-    let need = group_demand(group);
     let free = free_capacity(node, state);
     free.cpu_mhz >= need.cpu_mhz && free.memory_mb >= need.memory_mb
 }
@@ -70,7 +69,8 @@ pub fn process_eval(eval: &Evaluation, state: &StateStore) -> Plan {
     let Some(job) = state.get_job(&eval.job_id) else { return plan };
     let nodes = state.list_nodes();
     for group in &job.task_groups {
-        let Some(node) = nodes.iter().find(|n| node_fits(n, group, state)) else { continue };
+        let need = group_demand(group);
+        let Some(node) = nodes.iter().find(|n| node_fits(n, need, state)) else { continue };
         for _ in 0..group.count.max(0) {
             plan.allocs.push(Allocation {
                 id: format!("{}-{}", eval.id, plan.allocs.len()),
@@ -80,7 +80,7 @@ pub fn process_eval(eval: &Evaluation, state: &StateStore) -> Plan {
                 task_group: group.name.clone(),
                 desired_status: DesiredStatus::Run,
                 client_status: ClientStatus::Pending,
-                resources: group_demand(group),
+                resources: need,
             });
         }
     }
