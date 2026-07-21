@@ -58,6 +58,12 @@ pub struct TaskGroup {
     /// Hard placement constraints every candidate node must satisfy.
     #[serde(default)]
     pub constraints: Vec<crate::constraint::Constraint>,
+    /// Soft placement preferences (affinities) that influence ranking.
+    #[serde(default)]
+    pub affinities: Vec<crate::constraint::Affinity>,
+    /// Spread targets for even distribution across attribute values.
+    #[serde(default)]
+    pub spreads: Vec<crate::constraint::Spread>,
 }
 
 /// A single unit of work within a task group.
@@ -234,7 +240,14 @@ mod tests {
 
     #[test]
     fn test_task_group_creation() {
-        let tg = TaskGroup { name: "frontend".to_owned(), count: 3, tasks: vec![], constraints: vec![] };
+        let tg = TaskGroup {
+            name: "frontend".to_owned(),
+            count: 3,
+            tasks: vec![],
+            constraints: vec![],
+            affinities: vec![],
+            spreads: vec![],
+        };
         assert_eq!(tg.name, "frontend");
         assert_eq!(tg.count, 3);
         assert!(tg.tasks.is_empty());
@@ -248,7 +261,14 @@ mod tests {
             config: HashMap::new(),
             resources: Resources::default(),
         };
-        let tg = TaskGroup { name: "web".to_owned(), count: 2, tasks: vec![task], constraints: vec![] };
+        let tg = TaskGroup {
+            name: "web".to_owned(),
+            count: 2,
+            tasks: vec![task],
+            constraints: vec![],
+            affinities: vec![],
+            spreads: vec![],
+        };
         assert_eq!(tg.tasks.len(), 1);
         assert_eq!(tg.tasks[0].name, "nginx");
     }
@@ -325,13 +345,27 @@ mod tests {
 
     #[test]
     fn test_task_group_validate_empty_name() {
-        let tg = TaskGroup { name: String::new(), count: 1, tasks: vec![], constraints: vec![] };
+        let tg = TaskGroup {
+            name: String::new(),
+            count: 1,
+            tasks: vec![],
+            constraints: vec![],
+            affinities: vec![],
+            spreads: vec![],
+        };
         assert!(tg.validate().unwrap_err().to_string().contains("group name"));
     }
 
     #[test]
     fn test_task_group_validate_negative_count() {
-        let tg = TaskGroup { name: "g".to_owned(), count: -1, tasks: vec![], constraints: vec![] };
+        let tg = TaskGroup {
+            name: "g".to_owned(),
+            count: -1,
+            tasks: vec![],
+            constraints: vec![],
+            affinities: vec![],
+            spreads: vec![],
+        };
         assert!(tg.validate().unwrap_err().to_string().contains("negative"));
     }
 

@@ -211,7 +211,14 @@ mod tests {
         };
         Job {
             name: name.to_owned(),
-            task_groups: vec![TaskGroup { name: "web".to_owned(), count: 1, tasks: vec![task], constraints: vec![] }],
+            task_groups: vec![TaskGroup {
+                name: "web".to_owned(),
+                count: 1,
+                tasks: vec![task],
+                constraints: vec![],
+                affinities: vec![],
+                spreads: vec![],
+            }],
             ..Job::default()
         }
     }

@@ -20,7 +20,156 @@ pub struct Plan {
     pub allocs: Vec<Allocation>,
 }
 
-/// Total resources a task group demands (sum of its tasks).
+/// A weighted node candidate for placement, produced by ranking.
+#[derive(Debug, Clone)]
+struct Candidate {
+    /// The candidate node.
+    node: Node,
+    /// Free capacity on this node after existing allocs.
+    #[allow(dead_code)]
+    free: Resources,
+    /// Composite score (higher = better).
+    score: f64,
+    /// Original index in the candidate list (tiebreaker -> stable order).
+    order: usize,
+}
+
+/// Compute a composite score for placing one instance of `group` on `node`.
+///
+/// Components (lower-is-better components are negated so the composite is
+/// always higher-is-better):
+///
+///   **Affinity** — each satisfied affinity adds its `weight` to the score.
+///     (weights are in `-100..=100` so the range is proportional.)
+///
+///   **Bin-pack** — a small positive nudge for nodes whose free capacity
+///     *after placement* is proportionally tighter (prefer consolidating
+///     rather than spreading thin across many nodes). Computed as the
+///     utilization fraction after placing the workload.
+///
+///   **Spread** — computed externally via [`SpreadRanker`] and injected.
+///
+/// ponytail: simple additive model. Real Nomad uses a more sophisticated
+/// normalized scoring system with separate rank methods (bin-pack, spread,
+/// affinity) and penalty-based tiebreaking.
+#[must_use]
+fn score_node(node: &Node, free: &Resources, need: &Resources, group: &TaskGroup, spread_bonus: f64) -> f64 {
+    let mut score = 0.0;
+
+    // Affinity: sum weight of each satisfied affinity.
+    for affinity in &group.affinities {
+        if affinity.satisfied_by(&node.attributes) {
+            score += f64::from(affinity.weight);
+        }
+    }
+
+    // Bin-pack: prefer higher utilization after placing (consolidate).
+    let after_cpu = free.cpu_mhz - need.cpu_mhz;
+    let after_mem = free.memory_mb - need.memory_mb;
+    let after_net = free.network_mbps - need.network_mbps;
+    if after_cpu > 0 || after_mem > 0 || after_net > 0 {
+        let util_cpu = if node.resources.cpu_mhz > 0 {
+            f64::from(node.resources.cpu_mhz - after_cpu) / f64::from(node.resources.cpu_mhz)
+        } else {
+            0.0
+        };
+        let util_mem = if node.resources.memory_mb > 0 {
+            f64::from(node.resources.memory_mb - after_mem) / f64::from(node.resources.memory_mb)
+        } else {
+            0.0
+        };
+        let util_net = if node.resources.network_mbps > 0 {
+            f64::from(node.resources.network_mbps - after_net) / f64::from(node.resources.network_mbps)
+        } else {
+            0.0
+        };
+        // Bin-pack bonus: max 50 for full utilization, scaled.
+        let avg_util = (util_cpu + util_mem + util_net) / 3.0;
+        score += avg_util * 50.0;
+    }
+
+    // Spread bonus (from SpreadRanker, may be negative).
+    score += spread_bonus;
+
+    score
+}
+
+/// Tracks per-attribute-value allocation counts for spread scoring.
+struct SpreadRanker<'a> {
+    /// The task group whose spread targets drive the scoring.
+    group: &'a TaskGroup,
+}
+
+impl<'a> SpreadRanker<'a> {
+    /// Create a new ranker for the given task group.
+    fn new(group: &'a TaskGroup) -> Self {
+        Self { group }
+    }
+
+    /// Compute a spread bonus for placing on `node` given the current
+    /// allocation distribution in `state`.
+    ///
+    /// For each spread target in the group, awards a positive bonus when
+    /// the node's attribute value is *under-represented* (below its target
+    /// percent) and a penalty when over-represented.
+    #[must_use]
+    #[allow(clippy::cast_precision_loss, reason = "cluster sizes fit in f64 mantissa")]
+    fn bonus_for(&self, node: &Node, state: &StateStore) -> f64 {
+        let mut bonus = 0.0;
+        for spread in &self.group.spreads {
+            let attr_val = node.attributes.get(spread.attribute.as_str());
+            let Some(attr_val) = attr_val else { continue };
+
+            // Total non-terminal allocs in the cluster.
+            let total_live = state.list_allocs().iter().filter(|a| is_live(a.client_status)).count();
+            if total_live == 0 {
+                continue;
+            }
+
+            // Allocs on nodes with the same attribute value.
+            let same_val = state
+                .list_allocs()
+                .iter()
+                .filter(|a| {
+                    if !is_live(a.client_status) {
+                        return false;
+                    }
+                    let n = state.get_node(a.node_id.as_str());
+                    n.is_some_and(|n| n.attributes.get(spread.attribute.as_str()) == Some(attr_val))
+                })
+                .count();
+
+            let current_pct = (same_val as f64 / total_live as f64) * 100.0;
+
+            // Sum target percent for this value across all targets.
+            let target_pct: f64 =
+                spread.targets.iter().filter(|t| t.value == *attr_val).map(|t| f64::from(t.percent)).sum();
+
+            // If no explicit target, assume even distribution over unique values.
+            let target_pct = if target_pct > 0.0 {
+                target_pct
+            } else {
+                // Guess: share remaining percent equally among untargeted values.
+                let unique_vals = state
+                    .list_nodes()
+                    .iter()
+                    .filter_map(|n| n.attributes.get(spread.attribute.as_str()))
+                    .collect::<std::collections::HashSet<_>>()
+                    .len()
+                    .max(1);
+                100.0 / unique_vals as f64
+            };
+
+            let deviation = current_pct - target_pct;
+            // Penalty for being over-represented, bonus for under-represented.
+            // Max magnitude ~50 (at 50% deviation).
+            bonus -= deviation * 1.0;
+        }
+        bonus
+    }
+}
+/// Sum of all tasks' resource demands within a task group.
+#[must_use]
 fn group_demand(group: &TaskGroup) -> Resources {
     group.tasks.iter().fold(Resources { cpu_mhz: 0, memory_mb: 0, network_mbps: 0 }, |acc, t| Resources {
         cpu_mhz: acc.cpu_mhz + t.resources.cpu_mhz,
@@ -68,12 +217,12 @@ pub fn desired_count(eval: &Evaluation, state: &StateStore) -> i32 {
     state.get_job(eval.job_id.as_str()).map_or(0, |j| j.task_groups.iter().map(|g| g.count.max(0)).sum())
 }
 
-/// Process one evaluation into a [`Plan`]: place each instance of each task
-/// group on the first node that still has room, decrementing that node's
-/// running free capacity as allocations are added so a node is never
-/// oversubscribed (across counts or multiple groups).
+/// Process one evaluation into a [`Plan`]: score eligible nodes by
+/// bin-pack utilization, affinity weights, and spread targets, then place
+/// each instance on the best-scoring node that has room.
 ///
-/// ponytail: first-fit, no scoring/spread. Real ranking is backlog #1b.
+/// ponytail: simple weighted-sum scoring. Real Nomad uses normalized
+/// rank methods with penalty-based tiebreaking.
 #[must_use]
 pub fn process_eval(eval: &Evaluation, state: &StateStore) -> Plan {
     let mut plan = Plan::default();
@@ -91,28 +240,77 @@ pub fn process_eval(eval: &Evaluation, state: &StateStore) -> Plan {
         .collect();
     for group in &job.task_groups {
         let need = group_demand(group);
-        for _ in 0..group.count.max(0) {
-            let Some((node, avail)) =
-                free.iter_mut().find(|(node, avail)| fits(*avail, need) && meets_constraints(node, group))
-            else {
-                break; // no node has room and satisfies constraints
-            };
-            plan.allocs.push(Allocation {
-                id: format!("{}-{}", eval.id, plan.allocs.len()).into(),
-                eval_id: eval.id.clone(),
-                node_id: node.id.clone(),
-                job_id: job.name.clone().into(),
-                task_group: group.name.clone(),
-                desired_status: DesiredStatus::Run,
-                client_status: ClientStatus::Pending,
-                resources: need,
-            });
-            avail.cpu_mhz -= need.cpu_mhz;
-            avail.memory_mb -= need.memory_mb;
-            avail.network_mbps -= need.network_mbps;
+        // Build ranked candidates for this group.
+        let has_affinities = !group.affinities.is_empty();
+        let has_spreads = !group.spreads.is_empty();
+        if !has_affinities && !has_spreads {
+            // Fast path: no scoring needed — first-fit with decrement.
+            for _ in 0..group.count.max(0) {
+                let Some((node, avail)) =
+                    free.iter_mut().find(|(node, avail)| fits(*avail, need) && meets_constraints(node, group))
+                else {
+                    break;
+                };
+                plan.allocs.push(make_alloc(eval, &plan, &job, group, need, node.id.as_str()));
+                avail.cpu_mhz -= need.cpu_mhz;
+                avail.memory_mb -= need.memory_mb;
+                avail.network_mbps -= need.network_mbps;
+            }
+        } else {
+            // Scoring path: rank candidates, try best first.
+            let spread_ranker = SpreadRanker::new(group);
+            for _ in 0..group.count.max(0) {
+                let mut scored: Vec<Candidate> = free
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, (node, avail))| fits(*avail, need) && meets_constraints(node, group))
+                    .map(|(idx, (node, avail))| {
+                        let spread_bonus = spread_ranker.bonus_for(node, state);
+                        Candidate {
+                            node: node.clone(),
+                            free: *avail,
+                            score: score_node(node, avail, &need, group, spread_bonus),
+                            order: idx,
+                        }
+                    })
+                    .collect();
+                // Sort descending by score, then by original order for stability.
+                scored.sort_by(|a, b| b.score.total_cmp(&a.score).then_with(|| a.order.cmp(&b.order)));
+                let Some(best) = scored.into_iter().next() else { break };
+                // Locate the matching node in free and decrement its capacity.
+                let Some((_, old_avail)) = free.iter_mut().find(|(n, _)| n.id.as_str() == best.node.id.as_str()) else {
+                    continue;
+                };
+                old_avail.cpu_mhz -= need.cpu_mhz;
+                old_avail.memory_mb -= need.memory_mb;
+                old_avail.network_mbps -= need.network_mbps;
+                plan.allocs.push(make_alloc(eval, &plan, &job, group, need, best.node.id.as_str()));
+            }
         }
     }
     plan
+}
+
+/// Build a single placement allocation for a task-group instance.
+#[must_use]
+fn make_alloc(
+    eval: &Evaluation,
+    plan: &Plan,
+    job: &crate::jobspec::Job,
+    group: &TaskGroup,
+    need: Resources,
+    node_id: &str,
+) -> Allocation {
+    Allocation {
+        id: format!("{}-{}", eval.id, plan.allocs.len()).into(),
+        eval_id: eval.id.clone(),
+        node_id: node_id.to_owned().into(),
+        job_id: job.name.clone().into(),
+        task_group: group.name.clone(),
+        desired_status: DesiredStatus::Run,
+        client_status: ClientStatus::Pending,
+        resources: need,
+    }
 }
 
 /// Apply a [`Plan`] by committing each placement to the FSM as an `UpsertAlloc`.
@@ -319,7 +517,14 @@ mod tests {
         };
         Job {
             name: name.to_owned(),
-            task_groups: vec![TaskGroup { name: group.to_owned(), count: 1, tasks: vec![task], constraints: vec![] }],
+            task_groups: vec![TaskGroup {
+                name: group.to_owned(),
+                count: 1,
+                tasks: vec![task],
+                constraints: vec![],
+                affinities: vec![],
+                spreads: vec![],
+            }],
             ..Job::default()
         }
     }

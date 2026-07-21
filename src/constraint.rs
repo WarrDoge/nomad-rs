@@ -88,7 +88,7 @@ fn eval_version(val: &str, constraint: &str) -> bool {
 }
 
 /// A soft placement preference with a weight; nudges ranking, never excludes.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Affinity {
     /// Left-hand target.
     pub left: String,
@@ -122,10 +122,31 @@ impl Affinity {
         }
         Ok(())
     }
+
+    /// Whether a node with the given `attributes` satisfies this affinity
+    /// (same semantics as [`Constraint::satisfied_by`]).
+    #[must_use]
+    pub fn satisfied_by(&self, attributes: &HashMap<String, String>) -> bool {
+        let attr_val = attributes.get(self.left.as_str()).map_or(String::new(), Clone::clone);
+        let right = self.right.as_str();
+        match self.operand.as_str() {
+            "=" => attr_val == right,
+            "!=" => attr_val != right,
+            ">" => cmp_num(&attr_val, right, |a, b| a > b),
+            ">=" => cmp_num(&attr_val, right, |a, b| a >= b),
+            "<" => cmp_num(&attr_val, right, |a, b| a < b),
+            "<=" => cmp_num(&attr_val, right, |a, b| a <= b),
+            "regexp" => eval_regexp(&attr_val, right),
+            "version" => eval_version(&attr_val, right),
+            "set_contains" => attr_val.split(',').any(|v| v.trim() == right),
+            "distinct_hosts" | "distinct_property" => true,
+            _ => false,
+        }
+    }
 }
 
 /// A single spread target: a desired share of allocations for an attribute value.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct SpreadTarget {
     /// Attribute value this target applies to, e.g. a datacenter name.
     pub value: String,
@@ -134,7 +155,7 @@ pub struct SpreadTarget {
 }
 
 /// Spreads allocations across the values of an attribute.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Spread {
     /// Attribute to spread over, e.g. `"${node.datacenter}"`.
     pub attribute: String,
