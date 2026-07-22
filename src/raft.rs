@@ -82,19 +82,19 @@ impl RaftNode {
 
     /// Borrow the committed state for reads.
     #[must_use]
-    pub fn state(&self) -> &StateStore {
+    pub const fn state(&self) -> &StateStore {
         self.fsm.state()
     }
 
     /// Number of committed log entries.
     #[must_use]
-    pub fn committed_index(&self) -> usize {
+    pub const fn committed_index(&self) -> usize {
         self.log.len()
     }
 
     /// This node's current [`RaftRole`].
     #[must_use]
-    pub fn role(&self) -> RaftRole {
+    pub const fn role(&self) -> RaftRole {
         self.role
     }
 
@@ -106,7 +106,7 @@ impl RaftNode {
 
     /// Address of the current leader, if one is known.
     #[must_use]
-    pub fn leader_addr(&self) -> Option<String> {
+    pub const fn leader_addr(&self) -> Option<String> {
         None
     }
 }

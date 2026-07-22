@@ -35,7 +35,7 @@ impl AllocRunner {
     /// Roll this up live from `task_states()` (any Failed → Failed, all Exited →
     /// Complete) once restart/health supervision is wired.
     #[must_use]
-    pub fn status(&self) -> ClientStatus {
+    pub const fn status(&self) -> ClientStatus {
         self.alloc.client_status
     }
 

@@ -65,7 +65,7 @@ impl Deployment {
 
     /// Whether canaries are all healthy and the deployment can be promoted.
     #[must_use]
-    pub fn is_promotable(&self) -> bool {
+    pub const fn is_promotable(&self) -> bool {
         self.desired_canaries > 0 && self.healthy >= self.desired_canaries
     }
 }

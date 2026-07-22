@@ -29,7 +29,7 @@ impl NodeStatus {
     /// Lowercase wire string for the status (matches upstream constants),
     /// e.g. [`NodeStatus::Ready`] renders as `"ready"`.
     #[must_use]
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Init => "initializing",
             Self::Ready => "ready",

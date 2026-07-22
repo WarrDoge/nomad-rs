@@ -52,20 +52,20 @@ impl TaskRunner {
     /// ponytail: plumb this from the task group's `restart` block once jobspec
     /// carries one; today every runner uses the default.
     #[must_use]
-    pub fn with_restart_policy(mut self, policy: RestartPolicy) -> Self {
+    pub const fn with_restart_policy(mut self, policy: RestartPolicy) -> Self {
         self.restart_policy = policy;
         self
     }
 
     /// Current driver-reported state of the task.
     #[must_use]
-    pub fn state(&self) -> TaskState {
+    pub const fn state(&self) -> TaskState {
         self.state
     }
 
     /// How many times the task has been restarted.
     #[must_use]
-    pub fn restart_count(&self) -> u32 {
+    pub const fn restart_count(&self) -> u32 {
         self.restart_count
     }
 

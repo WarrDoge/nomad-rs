@@ -47,7 +47,7 @@ impl Fsm {
 
     /// Borrow the underlying state for reads.
     #[must_use]
-    pub fn state(&self) -> &StateStore {
+    pub const fn state(&self) -> &StateStore {
         &self.state
     }
 

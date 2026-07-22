@@ -89,7 +89,7 @@ pub struct HttpApi {
 impl HttpApi {
     /// Create a new API handler.
     #[must_use]
-    pub fn new(state: Option<StateStore>) -> Self {
+    pub const fn new(state: Option<StateStore>) -> Self {
         Self { state }
     }
 

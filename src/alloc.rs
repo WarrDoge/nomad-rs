@@ -24,7 +24,7 @@ pub enum DesiredStatus {
 impl DesiredStatus {
     /// Lowercase wire string, e.g. [`DesiredStatus::Run`] is `"run"`.
     #[must_use]
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Run => "run",
             Self::Stop => "stop",
@@ -51,7 +51,7 @@ pub enum ClientStatus {
 impl ClientStatus {
     /// Lowercase wire string, e.g. [`ClientStatus::Running`] is `"running"`.
     #[must_use]
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Pending => "pending",
             Self::Running => "running",
@@ -64,7 +64,7 @@ impl ClientStatus {
     /// Whether this is a terminal status: [`ClientStatus::Complete`],
     /// [`ClientStatus::Failed`], or [`ClientStatus::Lost`].
     #[must_use]
-    pub fn is_terminal(&self) -> bool {
+    pub const fn is_terminal(&self) -> bool {
         matches!(self, Self::Complete | Self::Failed | Self::Lost)
     }
 }
@@ -115,7 +115,7 @@ impl Allocation {
 
     /// Whether the allocation has reached a terminal client status.
     #[must_use]
-    pub fn is_terminal(&self) -> bool {
+    pub const fn is_terminal(&self) -> bool {
         self.client_status.is_terminal()
     }
 }

@@ -102,7 +102,7 @@ struct SpreadRanker<'a> {
 
 impl<'a> SpreadRanker<'a> {
     /// Create a new ranker for the given task group.
-    fn new(group: &'a TaskGroup) -> Self {
+    const fn new(group: &'a TaskGroup) -> Self {
         Self { group }
     }
 
@@ -191,7 +191,7 @@ fn free_capacity(node: &Node, state: &StateStore) -> Resources {
 }
 
 /// An alloc reserves capacity until it reaches a terminal client status.
-fn is_live(status: ClientStatus) -> bool {
+const fn is_live(status: ClientStatus) -> bool {
     matches!(status, ClientStatus::Pending | ClientStatus::Running)
 }
 
@@ -201,7 +201,7 @@ fn node_eligible(node: &Node) -> bool {
 }
 
 /// Whether `avail` covers `need` across every tracked resource.
-fn fits(avail: Resources, need: Resources) -> bool {
+const fn fits(avail: Resources, need: Resources) -> bool {
     avail.cpu_mhz >= need.cpu_mhz && avail.memory_mb >= need.memory_mb && avail.network_mbps >= need.network_mbps
 }
 
@@ -386,13 +386,13 @@ pub struct Scheduler {
 impl Scheduler {
     /// Create a new scheduler instance.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { status: SchedulerStatus::Initialized }
     }
 
     /// Returns the current status of the scheduler.
     #[must_use]
-    pub fn status(&self) -> SchedulerStatus {
+    pub const fn status(&self) -> SchedulerStatus {
         self.status
     }
 

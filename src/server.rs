@@ -111,13 +111,13 @@ impl Server {
 
     /// Returns the configuration this server was created with.
     #[must_use]
-    pub fn config(&self) -> &Config {
+    pub const fn config(&self) -> &Config {
         &self.config
     }
 
     /// Returns the current status of the server.
     #[must_use]
-    pub fn status(&self) -> ServerStatus {
+    pub const fn status(&self) -> ServerStatus {
         self.status
     }
 

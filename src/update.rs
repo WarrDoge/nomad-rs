@@ -61,7 +61,7 @@ impl UpdateStrategy {
 
     /// Whether this strategy deploys canaries first.
     #[must_use]
-    pub fn uses_canary(&self) -> bool {
+    pub const fn uses_canary(&self) -> bool {
         self.canary > 0
     }
 }

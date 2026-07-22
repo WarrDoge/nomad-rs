@@ -45,7 +45,7 @@ pub struct DrainProgress {
 
 /// Compute drain progress from totals.
 #[must_use]
-pub fn drain_progress(total: u32, migrated: u32) -> DrainProgress {
+pub const fn drain_progress(total: u32, migrated: u32) -> DrainProgress {
     DrainProgress { remaining: total.saturating_sub(migrated), complete: migrated >= total }
 }
 

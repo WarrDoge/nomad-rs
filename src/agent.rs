@@ -38,7 +38,7 @@ impl Agent {
     /// Create a new agent from config. Sub-agents are created lazily when
     /// started.
     #[must_use]
-    pub fn new(config: Config) -> Self {
+    pub const fn new(config: Config) -> Self {
         Self { config, client: None, server: None, status: AgentStatus::Initialized }
     }
 

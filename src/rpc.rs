@@ -88,7 +88,7 @@ impl RpcEndpoint {
 
     /// Create an endpoint wired to an existing consensus node.
     #[must_use]
-    pub fn with_raft(eval_queue: EvalQueue, raft: Arc<Mutex<RaftNode>>) -> Self {
+    pub const fn with_raft(eval_queue: EvalQueue, raft: Arc<Mutex<RaftNode>>) -> Self {
         Self { eval_queue, raft }
     }
 
@@ -245,7 +245,7 @@ pub struct RpcServer {
 impl RpcServer {
     /// Create a server over the given endpoint.
     #[must_use]
-    pub fn new(endpoint: Arc<RpcEndpoint>) -> Self {
+    pub const fn new(endpoint: Arc<RpcEndpoint>) -> Self {
         Self { endpoint }
     }
 

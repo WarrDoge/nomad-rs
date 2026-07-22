@@ -32,7 +32,7 @@ impl EvalTrigger {
     /// Lowercase, hyphenated wire string, e.g. [`EvalTrigger::JobRegister`] is
     /// `"job-register"`.
     #[must_use]
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             Self::JobRegister => "job-register",
             Self::JobDeregister => "job-deregister",
@@ -62,7 +62,7 @@ pub enum EvalStatus {
 impl EvalStatus {
     /// Lowercase wire string, e.g. `EvalStatus::Pending` is `"pending"`.
     #[must_use]
-    pub fn as_str(&self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Blocked => "blocked",
             Self::Pending => "pending",
@@ -75,7 +75,7 @@ impl EvalStatus {
     /// Whether this is a terminal status: [`EvalStatus::Complete`],
     /// [`EvalStatus::Failed`], or [`EvalStatus::Canceled`].
     #[must_use]
-    pub fn is_terminal(&self) -> bool {
+    pub const fn is_terminal(&self) -> bool {
         matches!(self, Self::Complete | Self::Failed | Self::Canceled)
     }
 }

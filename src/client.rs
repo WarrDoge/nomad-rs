@@ -23,19 +23,19 @@ pub struct Client {
 impl Client {
     /// Create a new client with the given configuration.
     #[must_use]
-    pub fn new(config: Config) -> Self {
+    pub const fn new(config: Config) -> Self {
         Self { config, status: ClientStatus::Initialized }
     }
 
     /// Returns the configuration this client was created with.
     #[must_use]
-    pub fn config(&self) -> &Config {
+    pub const fn config(&self) -> &Config {
         &self.config
     }
 
     /// Returns the current status of the client.
     #[must_use]
-    pub fn status(&self) -> ClientStatus {
+    pub const fn status(&self) -> ClientStatus {
         self.status
     }
 

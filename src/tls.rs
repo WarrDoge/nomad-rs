@@ -30,7 +30,7 @@ pub struct TlsConfig {
 impl TlsConfig {
     /// Create a new `TlsConfig` with the given certificate, key, and CA paths.
     #[must_use]
-    pub fn new(cert_path: String, key_path: String, ca_path: String) -> Self {
+    pub const fn new(cert_path: String, key_path: String, ca_path: String) -> Self {
         Self { cert_path, key_path, ca_path }
     }
 
