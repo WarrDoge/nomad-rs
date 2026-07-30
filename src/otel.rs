@@ -65,9 +65,7 @@ pub fn init_otel_tracer() -> Result<()> {
         .map_err(|e| Error::Runtime(format!("failed to build OTLP exporter: {e}")))?;
 
     // Build a tracer provider with simple processor (no batch).
-    let provider = SdkTracerProvider::builder()
-        .with_simple_exporter(otlp_exporter)
-        .build();
+    let provider = SdkTracerProvider::builder().with_simple_exporter(otlp_exporter).build();
 
     let tracer = provider.tracer("nomad-rs");
 
@@ -79,9 +77,7 @@ pub fn init_otel_tracer() -> Result<()> {
         .map_err(|e| Error::Runtime(format!("failed to init OTel tracing layer: {e}")))?;
 
     // Store the provider so shutdown_otel_tracer can flush + shut it down.
-    OTEL_PROVIDER
-        .set(provider)
-        .map_err(|_| Error::Runtime("init_otel_tracer called more than once".to_owned()))?;
+    OTEL_PROVIDER.set(provider).map_err(|_| Error::Runtime("init_otel_tracer called more than once".to_owned()))?;
 
     tracing::info!(endpoint, "OpenTelemetry tracing initialised");
     Ok(())
@@ -163,7 +159,7 @@ mod tests {
                     Ok(()) => {
                         // Must shut down to clean up the OnceLock / subscriber.
                         shutdown_otel_tracer();
-                    }
+                    },
                     Err(e) => {
                         let msg = e.to_string();
                         assert!(
@@ -173,7 +169,7 @@ mod tests {
                                 || msg.contains("exporter"),
                             "unexpected error: {msg}"
                         );
-                    }
+                    },
                 }
             });
         });

@@ -3,8 +3,8 @@
 //! Task artifacts: files fetched into a task before it starts.
 //!
 //! Mirrors the subset of upstream Nomad's `structs.TaskArtifact` plus the
-//! getter abstraction. The [`Getter`] trait is the download contract;
-//! [`HttpGetter`] is one implementation that downloads via HTTPS.
+//! getter abstraction. The [`Getter`](crate::artifact::Getter) trait is the download contract;
+//! [`HttpGetter`](crate::artifact::HttpGetter) is one implementation that downloads via HTTPS.
 
 use std::path::Path;
 
@@ -73,17 +73,14 @@ impl HttpGetter {
                 let mut hasher = Sha256::new();
                 hasher.update(data);
                 hex::encode(hasher.finalize())
-            }
+            },
             other => return Err(Error::Config(format!("unsupported checksum algorithm: {other}"))),
         };
 
         if actual_hex == expected {
             Ok(())
         } else {
-            Err(Error::ChecksumMismatch {
-                expected: expected.to_owned(),
-                actual: actual_hex,
-            })
+            Err(Error::ChecksumMismatch { expected: expected.to_owned(), actual: actual_hex })
         }
     }
 }
@@ -93,10 +90,7 @@ impl Getter for HttpGetter {
         artifact.validate()?;
 
         if !artifact.source.starts_with("http://") && !artifact.source.starts_with("https://") {
-            return Err(Error::Download(format!(
-                "unsupported scheme for HttpGetter: {}",
-                artifact.source
-            )));
+            return Err(Error::Download(format!("unsupported scheme for HttpGetter: {}", artifact.source)));
         }
 
         let client = reqwest::blocking::Client::builder()
@@ -111,15 +105,10 @@ impl Getter for HttpGetter {
 
         let status = response.status();
         if !status.is_success() {
-            return Err(Error::Download(format!(
-                "download of {} returned HTTP {status}",
-                artifact.source
-            )));
+            return Err(Error::Download(format!("download of {} returned HTTP {status}", artifact.source)));
         }
 
-        let body = response
-            .bytes()
-            .map_err(|e| Error::Download(format!("failed to read response body: {e}")))?;
+        let body = response.bytes().map_err(|e| Error::Download(format!("failed to read response body: {e}")))?;
 
         // Verify checksum if provided
         if let Some(ref checksum) = artifact.checksum {
@@ -198,20 +187,15 @@ mod tests {
         let err = result.unwrap_err();
         let msg = err.to_string();
         assert!(
-            msg.contains("download error")
-                || msg.contains("failed to download")
-                || msg.contains("HTTP"),
+            msg.contains("download error") || msg.contains("failed to download") || msg.contains("HTTP"),
             "expected download-related error, got: {msg}"
         );
     }
 
     #[test]
     fn http_getter_rejects_non_http_scheme() {
-        let artifact = Artifact {
-            source: "s3://bucket/key".to_owned(),
-            destination: "local/data".to_owned(),
-            checksum: None,
-        };
+        let artifact =
+            Artifact { source: "s3://bucket/key".to_owned(), destination: "local/data".to_owned(), checksum: None };
         let result = HttpGetter.get(&artifact, "/tmp/alloc");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("unsupported scheme"));
@@ -219,11 +203,7 @@ mod tests {
 
     #[test]
     fn http_getter_rejects_empty_source() {
-        let artifact = Artifact {
-            source: String::new(),
-            destination: "local/data".to_owned(),
-            checksum: None,
-        };
+        let artifact = Artifact { source: String::new(), destination: "local/data".to_owned(), checksum: None };
         let result = HttpGetter.get(&artifact, "/tmp/alloc");
         assert!(result.is_err());
     }
