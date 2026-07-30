@@ -299,15 +299,13 @@ impl TaskDriver for DockerDriver {
         cmd.arg("run").arg("--rm").arg("-d");
 
         // Optional command override
-        if let Some(command) = task
-            .config
-            .get("command")
-            .and_then(serde_json::Value::as_str)
-        {
+        if let Some(command) = task.config.get("command").and_then(serde_json::Value::as_str) {
             cmd.arg("--entrypoint").arg(command);
         }
 
-        // Optional args
+        cmd.arg(image);
+
+        // Optional args come after the image name (they become the CMD).
         if let Some(serde_json::Value::Array(values)) = task.config.get("args") {
             for v in values {
                 cmd.arg(
@@ -316,8 +314,6 @@ impl TaskDriver for DockerDriver {
                 );
             }
         }
-
-        cmd.arg(image);
 
         let output = cmd.output()?;
         if !output.status.success() {
@@ -337,9 +333,7 @@ impl TaskDriver for DockerDriver {
     }
 
     fn stop_task(&self, handle: &TaskHandle) -> Result<()> {
-        let status = Command::new("docker")
-            .args(["stop", "--time", "5", &handle.id])
-            .status()?;
+        let status = Command::new("docker").args(["stop", "--timeout", "5", &handle.id]).status()?;
         if !status.success() {
             // Container may already have exited; that's fine.
             tracing::debug!("docker stop for {} exited with {}", handle.id, status);
@@ -348,9 +342,7 @@ impl TaskDriver for DockerDriver {
     }
 
     fn inspect_task(&self, handle: &TaskHandle) -> Result<TaskState> {
-        let output = Command::new("docker")
-            .args(["inspect", "--format", "{{.State.Status}}", &handle.id])
-            .output()?;
+        let output = Command::new("docker").args(["inspect", "--format", "{{.State.Status}}", &handle.id]).output()?;
         if !output.status.success() {
             // Container gone or never existed.
             return Ok(TaskState::Exited);
@@ -360,9 +352,8 @@ impl TaskDriver for DockerDriver {
             "running" => Ok(TaskState::Running),
             "exited" | "dead" => {
                 // Check exit code for Failed vs Exited distinction.
-                let exit_output = Command::new("docker")
-                    .args(["inspect", "--format", "{{.State.ExitCode}}", &handle.id])
-                    .output()?;
+                let exit_output =
+                    Command::new("docker").args(["inspect", "--format", "{{.State.ExitCode}}", &handle.id]).output()?;
                 if exit_output.status.success() {
                     let code = String::from_utf8_lossy(&exit_output.stdout).trim().to_owned();
                     if code == "0" {
@@ -513,7 +504,8 @@ mod tests {
         let mut config = HashMap::new();
         config.insert("command".to_owned(), serde_json::json!("echo"));
         config.insert("args".to_owned(), serde_json::json!(["--port", 8080]));
-        let task = Task { name: "x".to_owned(), driver: "raw_exec".to_owned(), config, resources: Resources::default() };
+        let task =
+            Task { name: "x".to_owned(), driver: "raw_exec".to_owned(), config, resources: Resources::default() };
         assert!(RawExecDriver::default().start_task(&task).is_err());
     }
 
@@ -522,7 +514,8 @@ mod tests {
         let mut config = HashMap::new();
         config.insert("command".to_owned(), serde_json::json!("echo"));
         config.insert("args".to_owned(), serde_json::json!("oops"));
-        let task = Task { name: "x".to_owned(), driver: "raw_exec".to_owned(), config, resources: Resources::default() };
+        let task =
+            Task { name: "x".to_owned(), driver: "raw_exec".to_owned(), config, resources: Resources::default() };
         assert!(RawExecDriver::default().start_task(&task).is_err());
     }
 
@@ -566,7 +559,8 @@ mod tests {
         let mut config = HashMap::new();
         config.insert("image".to_owned(), serde_json::json!("alpine"));
         config.insert("args".to_owned(), serde_json::json!(["echo", "hello"]));
-        let task = Task { name: "echo".to_owned(), driver: "docker".to_owned(), config, resources: Resources::default() };
+        let task =
+            Task { name: "echo".to_owned(), driver: "docker".to_owned(), config, resources: Resources::default() };
         let driver = DockerDriver;
         let h = driver.start_task(&task).unwrap();
         assert_eq!(h.state, TaskState::Running);
@@ -593,7 +587,8 @@ mod tests {
         let mut config = HashMap::new();
         config.insert("image".to_owned(), serde_json::json!("alpine"));
         config.insert("args".to_owned(), serde_json::json!(["sleep", "30"]));
-        let task = Task { name: "sleeper".to_owned(), driver: "docker".to_owned(), config, resources: Resources::default() };
+        let task =
+            Task { name: "sleeper".to_owned(), driver: "docker".to_owned(), config, resources: Resources::default() };
         let driver = DockerDriver;
         let h = driver.start_task(&task).unwrap();
         assert_eq!(driver.inspect_task(&h).unwrap(), TaskState::Running);

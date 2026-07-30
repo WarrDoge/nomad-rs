@@ -33,13 +33,17 @@ pub struct AllocUpdate {
 /// A handle for sending allocation updates to a running client.
 #[derive(Debug, Clone)]
 pub struct Allocator {
+    /// Channel sender used to push allocations to the client's event loop.
     tx: mpsc::UnboundedSender<AllocUpdate>,
 }
 
 impl Allocator {
     /// Submit one allocation to the client's event loop for execution.
     ///
+    /// # Errors
+    ///
     /// Returns `Err(update)` if the client is not running (channel closed).
+    #[allow(clippy::result_large_err, reason = "Err returns the owned AllocUpdate for retry")]
     pub fn submit(&self, update: AllocUpdate) -> std::result::Result<(), AllocUpdate> {
         self.tx.send(update).map_err(|e| e.0)
     }
@@ -105,47 +109,45 @@ impl Client {
     /// - Listens for allocation updates on the internal channel
     /// - Starts/stops [`AllocRunner`]s in response
     /// - Periodically sends heartbeats (placeholder — no RPC yet)
-    /// - Exits when the channel is closed or runner.stop() is called
+    /// - Exits when the channel is closed or `runner.stop()` is called
     ///
     /// # Errors
     ///
     /// Returns an error if the client fails to initialise or encounters a
     /// fatal runtime error.
     pub async fn run(&mut self) -> Result<()> {
+        // ponytail: heartbeat interval hardcoded to 15s; make configurable
+        // once the ClientConfig carries a heartbeat_secs field.
+        const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
+
         if self.status == ClientStatusEnum::Running {
             return Ok(());
         }
         self.status = ClientStatusEnum::Running;
         tracing::info!("client starting");
 
-        let mut alloc_rx = self.alloc_rx.take()
-            .expect("alloc_rx consumed — run() called twice without a rebuild");
+        let Some(mut alloc_rx) = self.alloc_rx.take() else {
+            return Ok(());
+        };
         // Replace the internal sender with a fresh (dead) one so the old
         // sender is dropped. Otherwise the channel stays open even when
         // all external `Allocator` handles are gone.
         let (tx, _rx) = mpsc::unbounded_channel();
         let _ = std::mem::replace(&mut self.alloc_tx, tx);
 
-        // ponytail: heartbeat interval hardcoded to 15s; make configurable
-        // once the ClientConfig carries a heartbeat_secs field.
-        const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);
         let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
         heartbeat.tick().await; // skip the immediate first tick
 
         let mut shutdown = false;
 
         loop {
-            // NOTE: the `if shutdown { ready(()) } else { pending() }` pattern
-            // won't type-check because the two arms produce different future types.
-            // Instead we check the flag after each branch (inside the loop body).
             tokio::select! {
                 update = alloc_rx.recv() => {
-                    match update {
-                        Some(update) => self.handle_alloc_update(update),
-                        None => {
-                            tracing::info!("allocation channel closed, shutting down");
-                            shutdown = true;
-                        },
+                    if let Some(update) = update {
+                        self.handle_alloc_update(update);
+                    } else {
+                        tracing::info!("allocation channel closed, shutting down");
+                        shutdown = true;
                     }
                 }
 
@@ -214,10 +216,10 @@ impl Client {
     fn stop_all_runners(&mut self) {
         let ids: Vec<AllocId> = self.runners.keys().cloned().collect();
         for id in &ids {
-            if let Some(mut runner) = self.runners.remove(id) {
-                if let Err(e) = runner.destroy() {
-                    tracing::error!("alloc {id} stop failed during shutdown: {e}");
-                }
+            if let Some(mut runner) = self.runners.remove(id)
+                && let Err(e) = runner.destroy()
+            {
+                tracing::error!("alloc {id} stop failed during shutdown: {e}");
             }
         }
     }
@@ -281,10 +283,7 @@ mod tests {
         let client = Client::new(test_config());
         let allocator = client.allocator();
         assert!(!client.is_running());
-        // Allocator should exist but sending into a non-running client will
-        // just buffer — that's fine.
         let update = AllocUpdate { alloc: running_alloc("a1", DesiredStatus::Run), tasks: vec![sleep_task()] };
-        // Send should succeed even though client isn't running.
         allocator.submit(update).ok();
     }
 
@@ -298,28 +297,21 @@ mod tests {
 
     #[tokio::test]
     async fn test_client_full_lifecycle_via_spawn() {
-        // Run the event loop in the background, submit an allocator update,
-        // then close the channel. The loop should exit cleanly and runners
-        // should have been started/stopped.
         let mut client = Client::new(test_config());
         let allocator = client.allocator();
 
         let handle = tokio::spawn(async move { client.run().await });
 
-        // Give the loop time to get to the recv() branch.
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        // Submit start.
         let update = AllocUpdate { alloc: running_alloc("a1", DesiredStatus::Run), tasks: vec![sleep_task()] };
         allocator.submit(update).ok();
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // Submit stop.
         let update = AllocUpdate { alloc: running_alloc("a1", DesiredStatus::Stop), tasks: vec![] };
         allocator.submit(update).ok();
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        // Closing the channel should cause the event loop to exit gracefully.
         drop(allocator);
         let result = handle.await;
         assert!(result.is_ok(), "client event loop must exit cleanly");
@@ -327,8 +319,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_client_dropped_sender_exits_loop() {
-        // A client that never receives any allocator updates should still
-        // exit cleanly when the only sender is dropped.
         let mut client = Client::new(test_config());
         let allocator = client.allocator();
 

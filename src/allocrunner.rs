@@ -29,10 +29,7 @@ impl AllocRunner {
     ///
     /// Returns an error if any task specifies an unsupported driver.
     pub fn new(alloc: Allocation, tasks: Vec<Task>) -> Result<Self> {
-        let runners = tasks
-            .into_iter()
-            .map(TaskRunner::new)
-            .collect::<Result<Vec<_>>>()?;
+        let runners = tasks.into_iter().map(TaskRunner::new).collect::<Result<Vec<_>>>()?;
         Ok(Self { alloc, runners })
     }
 
@@ -121,7 +118,12 @@ impl AllocRunner {
 }
 
 #[cfg(test)]
-#[allow(clippy::missing_docs_in_private_items, clippy::wildcard_imports, clippy::unwrap_used, reason = "conventional inline test module")]
+#[allow(
+    clippy::missing_docs_in_private_items,
+    clippy::wildcard_imports,
+    clippy::unwrap_used,
+    reason = "conventional inline test module"
+)]
 mod tests {
     use super::*;
     use crate::alloc::DesiredStatus;
