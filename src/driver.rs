@@ -48,7 +48,7 @@ pub struct TaskHandle {
 }
 
 /// The contract every execution backend implements.
-pub trait TaskDriver {
+pub trait TaskDriver: std::fmt::Debug {
     /// Stable driver name, e.g. `"exec"`.
     fn name(&self) -> &'static str;
 

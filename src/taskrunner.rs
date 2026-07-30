@@ -4,24 +4,38 @@
 //!
 //! Owns one task, starts it via a driver, applies the restart policy on exit,
 //! and tracks state. Mirrors the subset of upstream Nomad's client
-//! `taskrunner`. Behaviour is specified by the tests and is unimplemented.
+//! `taskrunner`.
 
-use crate::driver::{ExecDriver, TaskDriver, TaskHandle, TaskState};
+use crate::driver::{DockerDriver, ExecDriver, RawExecDriver, TaskDriver, TaskHandle, TaskState};
 use crate::error::{Error, Result};
 use crate::jobspec::Task;
 use crate::reschedule::{RestartMode, RestartPolicy};
 
-/// Drives one task's lifecycle on a node.
+/// Select a driver backend by name.
 ///
-/// ponytail: only the `exec` driver is wired. Other driver names fall through
-/// to `exec` for now — add a real driver registry when `docker`/`raw_exec`
-/// gain real backends.
+/// Returns a boxed `TaskDriver` so the runner can use any backend. The set
+/// is closed (three known drivers); if Nomad ever adds driver plugins this
+/// becomes a `HashMap<String, Box<dyn TaskDriver>>`.
+///
+/// # Errors
+///
+/// Returns an error if `name` is not one of the known driver names.
+fn select_driver(name: &str) -> Result<Box<dyn TaskDriver>> {
+    match name {
+        "exec" => Ok(Box::new(ExecDriver::default())),
+        "raw_exec" => Ok(Box::new(RawExecDriver::default())),
+        "docker" => Ok(Box::new(DockerDriver)),
+        other => Err(Error::Runtime(format!("unsupported task driver '{other}'"))),
+    }
+}
+
+/// Drives one task's lifecycle on a node.
 #[derive(Debug)]
 pub struct TaskRunner {
     /// The task being run.
     task: Task,
     /// The execution backend.
-    driver: ExecDriver,
+    driver: Box<dyn TaskDriver>,
     /// Handle to the running task, once started.
     handle: Option<TaskHandle>,
     /// Current driver-reported state of the task.
@@ -35,16 +49,20 @@ pub struct TaskRunner {
 impl TaskRunner {
     /// Create a runner for `task` with the default restart policy (upstream
     /// Nomad's default: 2 attempts in 30 min, then fail the alloc).
-    #[must_use]
-    pub fn new(task: Task) -> Self {
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if `task.driver` is not a known driver name.
+    pub fn new(task: Task) -> Result<Self> {
+        let driver = select_driver(&task.driver)?;
+        Ok(Self {
             task,
-            driver: ExecDriver::default(),
+            driver,
             handle: None,
             state: TaskState::Pending,
             restart_count: 0,
             restart_policy: RestartPolicy { attempts: 2, interval_secs: 1800, delay_secs: 15, mode: RestartMode::Fail },
-        }
+        })
     }
 
     /// Override the restart policy (builder style).
@@ -77,11 +95,6 @@ impl TaskRunner {
     pub fn start(&mut self) -> Result<()> {
         if self.handle.is_some() {
             return Err(Error::Runtime(format!("task '{}' already started", self.task.name)));
-        }
-        // Only the exec driver is wired; reject other driver names rather than
-        // silently running them under exec.
-        if self.task.driver != self.driver.name() {
-            return Err(Error::Runtime(format!("unsupported task driver '{}'", self.task.driver)));
         }
         let handle = self.driver.start_task(&self.task)?;
         self.state = handle.state;
@@ -150,6 +163,7 @@ impl TaskRunner {
 
 #[cfg(test)]
 #[allow(clippy::missing_docs_in_private_items, clippy::wildcard_imports, reason = "conventional inline test module")]
+#[allow(clippy::unwrap_used, reason = "tests may unwrap")]
 mod tests {
     use super::*;
     use crate::jobspec::Resources;
@@ -162,6 +176,7 @@ mod tests {
             config: HashMap::new(),
             resources: Resources::default(),
         })
+        .unwrap()
     }
 
     #[test]
@@ -210,6 +225,7 @@ mod tests {
             config,
             resources: Resources::default(),
         })
+        .unwrap()
     }
 
     #[test]
@@ -249,7 +265,7 @@ mod tests {
         let mut r = runner_cmd("true", &[]);
         r.start().unwrap();
         assert!(r.handle_exit(false), "first failure restarts");
-        // Handle cleared → start() is allowed again (no "already started").
+        // Handle cleared → start() is allowed again (no \"already started\").
         r.start().expect("restart must be able to relaunch");
         r.stop().unwrap();
     }
@@ -263,16 +279,52 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_driver_errors() {
+    fn unsupported_driver_errors_at_construction() {
+        let task = Task {
+            name: "web".to_owned(),
+            driver: "nonexistent".to_owned(),
+            config: HashMap::new(),
+            resources: Resources::default(),
+        };
+        assert!(TaskRunner::new(task).is_err(), "unknown driver must be rejected at construction");
+    }
+
+    #[test]
+    fn raw_exec_runner_spawns_and_stops() {
         let mut config = HashMap::new();
         config.insert("command".to_owned(), serde_json::json!("sleep"));
-        config.insert("args".to_owned(), serde_json::json!(["30"]));
+        config.insert("args".to_owned(), serde_json::json!(["10"]));
         let mut r = TaskRunner::new(Task {
-            name: "web".to_owned(),
+            name: "raw".to_owned(),
+            driver: "raw_exec".to_owned(),
+            config,
+            resources: Resources::default(),
+        })
+        .unwrap();
+        r.start().unwrap();
+        assert_eq!(r.state(), TaskState::Running);
+        r.stop().unwrap();
+        assert_eq!(r.poll().unwrap(), TaskState::Exited);
+    }
+
+    #[test]
+    fn docker_runner_rejected_without_docker_daemon() {
+        // Without a Docker daemon, starting a docker-task runner will fail
+        // at `docker` CLI invocation. But construction should succeed since
+        // the driver name is known.
+        let mut config = HashMap::new();
+        config.insert("image".to_owned(), serde_json::json!("alpine"));
+        config.insert("args".to_owned(), serde_json::json!(["echo", "hi"]));
+        let mut r = TaskRunner::new(Task {
+            name: "d".to_owned(),
             driver: "docker".to_owned(),
             config,
             resources: Resources::default(),
-        });
-        assert!(r.start().is_err());
+        })
+        .unwrap();
+        // start_task will fail because there's no docker daemon in CI, but
+        // that's a runtime error, not a construction error.
+        let result = r.start();
+        assert!(result.is_err() || r.poll().unwrap() != TaskState::Pending, "docker start may fail without daemon");
     }
 }

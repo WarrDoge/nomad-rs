@@ -24,9 +24,16 @@ pub struct AllocRunner {
 
 impl AllocRunner {
     /// Create a runner for `alloc` driving `tasks`.
-    #[must_use]
-    pub fn new(alloc: Allocation, tasks: Vec<Task>) -> Self {
-        Self { alloc, runners: tasks.into_iter().map(TaskRunner::new).collect() }
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if any task specifies an unsupported driver.
+    pub fn new(alloc: Allocation, tasks: Vec<Task>) -> Result<Self> {
+        let runners = tasks
+            .into_iter()
+            .map(TaskRunner::new)
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Self { alloc, runners })
     }
 
     /// Overall client status of the allocation.
@@ -114,7 +121,7 @@ impl AllocRunner {
 }
 
 #[cfg(test)]
-#[allow(clippy::missing_docs_in_private_items, clippy::wildcard_imports, reason = "conventional inline test module")]
+#[allow(clippy::missing_docs_in_private_items, clippy::wildcard_imports, clippy::unwrap_used, reason = "conventional inline test module")]
 mod tests {
     use super::*;
     use crate::alloc::DesiredStatus;
@@ -135,7 +142,7 @@ mod tests {
     }
 
     fn runner() -> AllocRunner {
-        AllocRunner::new(alloc(), vec![])
+        AllocRunner::new(alloc(), vec![]).unwrap()
     }
 
     fn sleep_task() -> Task {
@@ -167,7 +174,7 @@ mod tests {
 
     #[test]
     fn run_rolls_back_started_tasks_on_later_failure() {
-        let mut r = AllocRunner::new(alloc(), vec![sleep_task(), bad_task()]);
+        let mut r = AllocRunner::new(alloc(), vec![sleep_task(), bad_task()]).unwrap();
         assert!(r.run().is_err());
         assert_eq!(r.status(), ClientStatus::Failed);
         // The first task was started then rolled back → not left running.
@@ -183,7 +190,7 @@ mod tests {
 
     #[test]
     fn refresh_status_rolls_up_to_complete_when_all_tasks_exit() {
-        let mut r = AllocRunner::new(alloc(), vec![quick_task()]);
+        let mut r = AllocRunner::new(alloc(), vec![quick_task()]).unwrap();
         r.run().unwrap();
         assert_eq!(r.status(), ClientStatus::Running);
         std::thread::sleep(std::time::Duration::from_millis(200));
@@ -200,7 +207,7 @@ mod tests {
 
     #[test]
     fn refresh_status_rolls_up_to_failed_when_a_task_fails() {
-        let mut r = AllocRunner::new(alloc(), vec![failing_task()]);
+        let mut r = AllocRunner::new(alloc(), vec![failing_task()]).unwrap();
         r.run().unwrap();
         std::thread::sleep(std::time::Duration::from_millis(200));
         assert_eq!(r.refresh_status().unwrap(), ClientStatus::Failed);
@@ -209,7 +216,7 @@ mod tests {
 
     #[test]
     fn refresh_status_stays_running_while_a_task_lives() {
-        let mut r = AllocRunner::new(alloc(), vec![sleep_task()]);
+        let mut r = AllocRunner::new(alloc(), vec![sleep_task()]).unwrap();
         r.run().unwrap();
         assert_eq!(r.refresh_status().unwrap(), ClientStatus::Running);
         r.destroy().unwrap();
@@ -217,7 +224,7 @@ mod tests {
 
     #[test]
     fn run_starts_every_task_then_destroy_stops_them() {
-        let mut r = AllocRunner::new(alloc(), vec![sleep_task(), sleep_task()]);
+        let mut r = AllocRunner::new(alloc(), vec![sleep_task(), sleep_task()]).unwrap();
         r.run().unwrap();
         assert_eq!(r.status(), ClientStatus::Running);
         assert!(r.task_states().unwrap().iter().all(|s| *s == TaskState::Running));
