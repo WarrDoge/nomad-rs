@@ -69,6 +69,9 @@ pub mod fsm;
 /// Consensus contract (Raft).
 pub mod raft;
 
+/// raft-rs [`Storage`] trait implementation backed by [`RaftLogStore`].
+pub mod raft_storage;
+
 /// Disk-backed Raft log persistence (JSONL + snapshots).
 pub mod raft_log;
 

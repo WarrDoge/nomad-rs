@@ -184,6 +184,14 @@ impl RaftLogStore {
         inner.entries.len()
     }
 
+    /// The base index of the log (the index of the first entry, or 1 if the
+    /// log has never been truncated).
+    #[must_use]
+    pub fn base_index(&self) -> u64 {
+        let Ok(inner) = self.inner.lock() else { return 1 };
+        inner.base_index
+    }
+
     /// Whether the in-memory log is empty.
     #[must_use]
     pub fn is_empty(&self) -> bool {

@@ -28,6 +28,8 @@ pub enum Command {
     UpsertAlloc(Allocation),
     /// Insert or update an evaluation.
     UpsertEval(Evaluation),
+    /// No-op entry (used as a placeholder during raft-rs integration).
+    NoOp,
 }
 
 /// Owns the authoritative [`StateStore`] and mutates it by applying committed
@@ -64,6 +66,7 @@ impl Fsm {
             Command::UpsertNode(node) => self.state.upsert_node(node),
             Command::UpsertAlloc(alloc) => self.state.upsert_alloc(alloc),
             Command::UpsertEval(eval) => self.state.upsert_eval(eval),
+            Command::NoOp => Ok(()),
         }
     }
 }
