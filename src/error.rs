@@ -38,6 +38,19 @@ pub enum Error {
     /// A validation error occurred.
     #[error("validation error: {0}")]
     Validation(String),
+
+    /// A download error occurred.
+    #[error("download error: {0}")]
+    Download(String),
+
+    /// A checksum mismatch after downloading an artifact.
+    #[error("checksum mismatch: expected {expected}, got {actual}")]
+    ChecksumMismatch {
+        /// The expected checksum value.
+        expected: String,
+        /// The computed checksum value.
+        actual: String,
+    },
 }
 
 #[cfg(test)]
