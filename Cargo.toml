@@ -13,6 +13,9 @@ rust-version = "1.96.0"
 name = "nomad-rs"
 path = "src/main.rs"
 
+[features]
+docker_test = []
+
 [lints.rust]
 unsafe_code = "deny"
 unsafe_op_in_unsafe_fn = "deny"
