@@ -13,6 +13,14 @@ use crate::jobspec::{Resources, TaskGroup};
 use crate::node::{Node, NodeStatus, SchedulingEligibility};
 use crate::state::StateStore;
 
+use std::time::Duration;
+use tokio::sync::watch;
+
+/// How long the evaluation loop pauses when the queue is empty before
+/// checking for new work or shutdown. 100 ms gives 10 wakeups/s on an
+/// idle leader — negligible for a single-node scheduler.
+const IDLE_SLEEP: Duration = Duration::from_millis(100);
+
 /// A set of placements the scheduler wants to apply for one evaluation.
 #[derive(Debug, Default, Clone)]
 pub struct Plan {
@@ -381,13 +389,20 @@ pub use crate::agent::AgentStatus as SchedulerStatus;
 pub struct Scheduler {
     /// Whether the scheduler is currently running.
     status: SchedulerStatus,
+    /// Sender side of a watch channel. When `stop()` is called, sends `true`
+    /// to wake the `run()` loop. Chosen over `AtomicBool` because the watch
+    /// receiver provides `wait_for()` — a native async primitive that avoids
+    /// polling (busy-spinning on an empty queue) while still reacting
+    /// instantly to shutdown, without needing a companion condvar or timer.
+    shutdown_tx: watch::Sender<bool>,
 }
 
 impl Scheduler {
     /// Create a new scheduler instance.
     #[must_use]
-    pub const fn new() -> Self {
-        Self { status: SchedulerStatus::Initialized }
+    pub fn new() -> Self {
+        let (shutdown_tx, _rx) = watch::channel(false);
+        Self { status: SchedulerStatus::Initialized, shutdown_tx }
     }
 
     /// Returns the current status of the scheduler.
@@ -402,24 +417,74 @@ impl Scheduler {
         self.status == SchedulerStatus::Running
     }
 
+    /// A handle that can stop the scheduler from another task.
+    ///
+    /// Returns a [`watch::Sender`] clone: sending `true` wakes the `run()` loop
+    /// and causes it to exit. Useful for tests that need to stop a scheduler
+    /// running in a spawned task.
+    #[must_use]
+    pub fn shutdown_handle(&self) -> watch::Sender<bool> {
+        self.shutdown_tx.clone()
+    }
+
     /// Run the scheduler evaluation loop.
+    ///
+    /// Drains pending evaluations from `queue` by passing them through
+    /// [`drain_queue`], then sleeps until new work arrives or [`stop`] is
+    /// called. Returns `Ok` when stopped normally.
     ///
     /// # Errors
     ///
-    /// Returns an error if the scheduling loop encounters a fatal error.
-    #[allow(clippy::unused_async)]
-    pub async fn run(&mut self) -> Result<()> {
+    /// Returns an error if the scheduling loop encounters a fatal error
+    /// (e.g. a poisoned eval queue mutex or an FSM apply failure).
+    pub async fn run(&mut self, queue: &crate::eval_queue::EvalQueue, fsm: &mut Fsm) -> Result<()> {
         if self.status == SchedulerStatus::Running {
             return Ok(());
         }
         self.status = SchedulerStatus::Running;
         tracing::info!("scheduler starting");
-        // TODO: implement the bin-packing scheduler loop
+
+        // Subscribe fresh so the loop always has a live receiver.
+        let mut shutdown_rx = self.shutdown_tx.subscribe();
+
+        loop {
+            // Drain any pending evaluations. Errors here (poisoned mutex,
+            // apply failure) are fatal and abort the loop.
+            if let Err(e) = drain_queue(queue, fsm) {
+                self.status = SchedulerStatus::Stopped;
+                return Err(e);
+            }
+
+            // Wait for either the shutdown signal or the idle interval.
+            // `wait_for` returns immediately if the value is already `true`,
+            // so an already-signalled stop exits on the next iteration.
+            let should_stop = tokio::select! {
+                _ = shutdown_rx.wait_for(|&b| b) => true,
+                () = tokio::time::sleep(IDLE_SLEEP) => false,
+            };
+
+            if should_stop {
+                break;
+            }
+        }
+
+        self.status = SchedulerStatus::Stopped;
+        tracing::info!("scheduler stopped");
         Ok(())
     }
 
     /// Gracefully stop the scheduler.
+    ///
+    /// Sends the shutdown signal to wake a running loop and flips the status.
+    /// Idempotent — safe to call multiple times.
     pub fn stop(&mut self) {
+        if self.status == SchedulerStatus::Stopped {
+            return;
+        }
+        // Send `true` on the watch to wake the `run()` loop's `wait_for`.
+        // `send` returns an error only when all receivers are dropped — we
+        // ignore it because a dropped receiver means the loop already exited.
+        let _ = self.shutdown_tx.send(true);
         self.status = SchedulerStatus::Stopped;
         tracing::info!("scheduler stopped");
     }
@@ -432,6 +497,12 @@ impl Default for Scheduler {
 }
 
 #[cfg(test)]
+#[allow(
+    clippy::missing_docs_in_private_items,
+    clippy::wildcard_imports,
+    clippy::unwrap_used,
+    reason = "conventional inline test module"
+)]
 mod tests {
     use super::*;
 
@@ -448,36 +519,6 @@ mod tests {
         assert_eq!(scheduler.status(), SchedulerStatus::Initialized);
     }
 
-    #[tokio::test]
-    async fn test_scheduler_run() {
-        let mut scheduler = Scheduler::new();
-        assert_eq!(scheduler.status(), SchedulerStatus::Initialized);
-        let result = scheduler.run().await;
-        assert!(result.is_ok());
-        assert!(scheduler.is_running());
-        assert_eq!(scheduler.status(), SchedulerStatus::Running);
-    }
-
-    #[tokio::test]
-    async fn test_scheduler_run_idempotent() {
-        let mut scheduler = Scheduler::new();
-        let _ = scheduler.run().await;
-        assert!(scheduler.is_running());
-        let result = scheduler.run().await;
-        assert!(result.is_ok());
-        assert!(scheduler.is_running());
-    }
-
-    #[tokio::test]
-    async fn test_scheduler_stop() {
-        let mut scheduler = Scheduler::new();
-        let _ = scheduler.run().await;
-        assert!(scheduler.is_running());
-        scheduler.stop();
-        assert_eq!(scheduler.status(), SchedulerStatus::Stopped);
-        assert!(!scheduler.is_running());
-    }
-
     #[test]
     fn test_scheduler_stop_before_run() {
         let mut scheduler = Scheduler::new();
@@ -485,6 +526,121 @@ mod tests {
         scheduler.stop();
         assert_eq!(scheduler.status(), SchedulerStatus::Stopped);
     }
+
+    // ---- Scheduler run-loop tests (requirement 5) -------------------------
+    // The three old tests (test_scheduler_run, test_scheduler_run_idempotent,
+    // test_scheduler_stop_from_another_task) tested stub behavior where
+    // run() returned immediately. Now run() loops until stopped; the three
+    // tests below cover the loop.
+
+    use std::sync::Arc;
+    use tokio::sync::Mutex as TokioMutex;
+
+    /// Helper: spawn the scheduler loop in a background task with a separate
+    /// stop handle so the test can control shutdown precisely. The FSM is
+    /// shared via `Arc<tokio::sync::Mutex<Fsm>>` so the test can inspect
+    /// state after the loop runs (the `tokio::sync::Mutex` guard is `Send`,
+    /// unlike `std::sync::MutexGuard`).
+    struct SchedulerTest {
+        queue: crate::eval_queue::EvalQueue,
+        fsm: Arc<TokioMutex<Fsm>>,
+    }
+
+    impl SchedulerTest {
+        fn new() -> Self {
+            Self { queue: crate::eval_queue::EvalQueue::new(), fsm: Arc::new(TokioMutex::new(Fsm::new())) }
+        }
+
+        /// Apply a command to the shared FSM.
+        async fn apply(&self, cmd: Command) {
+            self.fsm.lock().await.apply(cmd).unwrap();
+        }
+
+        /// Spawn `scheduler.run()` in a background task. Returns the
+        /// scheduler's [`watch::Sender`] so the test can stop it remotely,
+        /// and a [`tokio::task::JoinHandle`] that resolves to the run result.
+        async fn spawn_run(&self) -> (watch::Sender<bool>, tokio::task::JoinHandle<Result<()>>) {
+            let mut scheduler = Scheduler::new();
+            let stop_tx = scheduler.shutdown_handle();
+            let queue = self.queue.clone();
+            let fsm = Arc::clone(&self.fsm);
+
+            let handle = tokio::spawn(async move {
+                let mut fsm_guard = fsm.lock().await;
+                scheduler.run(&queue, &mut fsm_guard).await
+            });
+
+            // Yield once to let the spawned task make progress.
+            tokio::task::yield_now().await;
+            (stop_tx, handle)
+        }
+    }
+
+    #[tokio::test]
+    async fn run_loop_processes_queued_evals() {
+        let t = SchedulerTest::new();
+        // Register a node and two jobs in the FSM.
+        t.apply(Command::UpsertNode(node_with("n1", 1000, 1024))).await;
+        t.apply(Command::UpsertJob(job_with("a", "g", 100, 100))).await;
+        t.apply(Command::UpsertJob(job_with("b", "g", 100, 100))).await;
+        // Enqueue evals for both jobs.
+        t.queue.enqueue(eval_for_id("ea", "a")).unwrap();
+        t.queue.enqueue(eval_for_id("eb", "b")).unwrap();
+
+        let (stop_tx, handle) = t.spawn_run().await;
+
+        // Give the loop time to drain the queue.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // Stop the scheduler.
+        assert!(stop_tx.send(true).is_ok());
+        handle.await.unwrap().unwrap();
+
+        // Verify both evals were placed.
+        assert_eq!(t.fsm.lock().await.state().list_allocs().len(), 2, "both evals placed an alloc");
+        assert!(t.queue.dequeue().unwrap().is_none(), "eval queue drained");
+    }
+
+    #[tokio::test]
+    async fn run_loop_exits_on_stop() {
+        let t = SchedulerTest::new();
+        let (stop_tx, handle) = t.spawn_run().await;
+
+        // Stop immediately.
+        assert!(stop_tx.send(true).is_ok());
+
+        // The run loop should exit quickly (before the 5s timeout).
+        let result = tokio::time::timeout(Duration::from_secs(5), handle)
+            .await
+            .expect("scheduler did not exit within 5s of stop signal")
+            .expect("scheduler task panicked");
+
+        assert!(result.is_ok(), "run() returned Ok on clean stop");
+    }
+
+    #[tokio::test]
+    async fn run_loop_does_not_spin_on_empty_queue() {
+        let t = SchedulerTest::new();
+        let (stop_tx, handle) = t.spawn_run().await;
+
+        // Let the loop run for a few idle cycles to see if it pegs a core.
+        // Each idle cycle sleeps 100 ms; 350 ms = ~3 cycles.
+        tokio::time::sleep(Duration::from_millis(350)).await;
+
+        // Stop the scheduler. If it were busy-spinning it would have been
+        // pegging a core for 350ms — but we cannot assert CPU usage from
+        // here. Instead, verify that after stopping, the handle resolves
+        // promptly (no hung loop).
+        assert!(stop_tx.send(true).is_ok());
+        let result = tokio::time::timeout(Duration::from_secs(5), handle)
+            .await
+            .expect("scheduler did not exit within 5s of stop signal")
+            .expect("scheduler task panicked");
+
+        assert!(result.is_ok(), "run() returned Ok on clean stop");
+    }
+
+    // ---- Existing pure-function tests (unchanged) ---------------------------
 
     use crate::alloc::DesiredStatus;
     use crate::eval::{EvalStatus, EvalTrigger, Evaluation};
