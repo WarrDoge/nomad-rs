@@ -118,6 +118,26 @@ impl RaftNode {
     pub fn set_leader_addr(&mut self, addr: Option<String>) {
         self.leader_addr = addr;
     }
+
+    /// Mutable reference to the state store (for test setup).
+    #[must_use]
+    pub fn state_mut(&mut self) -> &mut StateStore {
+        self.fsm.state_mut()
+    }
+
+    /// Record a heartbeat from a node. In a full implementation this updates
+    /// the node's last-heard timestamp; for the single-node in-memory raft
+    /// this is a no-op that ensures the node is known to state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the node is not registered in state.
+    pub fn heartbeat(&self, node_id: &crate::id::NodeId) -> Result<()> {
+        if self.state().get_node(node_id.as_str()).is_none() {
+            return Err(crate::error::Error::Runtime(format!("heartbeat from unknown node: {node_id}")));
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

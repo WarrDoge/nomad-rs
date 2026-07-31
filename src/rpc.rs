@@ -7,7 +7,7 @@
 //! to the leader). [`RpcServer`](crate::rpc::RpcServer)/[`RpcClient`](crate::rpc::RpcClient)
 //! carry [`Request`](crate::rpc::Request)/[`Response`](crate::rpc::Response)
 //! over a length-prefixed JSON frame on a tokio TCP stream; mTLS is layered by
-//! wrapping the stream (see [`crate::tls`]) — slotted in once cert plumbing exists.
+//! wrapping the stream (see [`crate::tls`]).
 
 use crate::error::{Error, Result};
 use crate::eval::{EvalStatus, EvalTrigger, Evaluation};
@@ -20,8 +20,11 @@ use crate::raft::RaftNode;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::{TcpListener, TcpStream};
+use tokio_rustls::TlsAcceptor;
+use tokio_rustls::TlsStream;
+use tokio_rustls::client::TlsConnector;
 
 /// Hard cap on a single RPC frame (8 MiB). The length prefix is network-supplied
 /// and untrusted; a claim larger than this is rejected rather than allocated, so
@@ -42,6 +45,16 @@ pub enum Request {
         /// Scheduler types the worker can handle (e.g. `["service","batch"]`).
         schedulers: Vec<String>,
     },
+    /// Heartbeat from a client node to the server.
+    NodeHeartbeat {
+        /// The client node's identifier.
+        node_id: crate::id::NodeId,
+    },
+    /// Request all allocations placed on a given node.
+    NodeGetAllocs {
+        /// The node whose allocations to return.
+        node_id: crate::id::NodeId,
+    },
 }
 
 /// A response to a [`Request`].
@@ -61,6 +74,11 @@ pub enum Response {
         /// Address of the current leader, if known.
         leader_addr: Option<String>,
     },
+    /// All allocations for a requested node.
+    NodeAllocs {
+        /// Allocations assigned to the node.
+        allocs: Vec<crate::alloc::Allocation>,
+    },
 }
 
 /// The in-tree RPC handler.
@@ -68,9 +86,6 @@ pub enum Response {
 /// Writes are committed through the local [`RaftNode`] (so they land in the
 /// FSM-backed state), then any follow-up eval is enqueued. On a follower, a
 /// write returns [`Response::NotLeader`].
-///
-/// ponytail: no wire transport yet — `NotLeader` reports where to forward, but
-/// the actual node↔server RPC socket (custom-over-mTLS / gRPC) is still TBD.
 #[derive(Debug)]
 pub struct RpcEndpoint {
     /// Priority eval queue shared with the scheduler loop.
@@ -103,11 +118,12 @@ impl RpcEndpoint {
     /// Returns `Ok(Some(NotLeader))` if this node is a follower (caller should
     /// forward), or `Ok(None)` once the command is committed and applied.
     fn commit(&self, command: Command) -> Result<Option<Response>> {
-        let mut raft = self.raft.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let raft = self.raft.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if !raft.is_leader() {
             return Ok(Some(Response::NotLeader { leader_addr: raft.leader_addr() }));
         }
-        raft.propose(command)?;
+        drop(raft); // release before propose to avoid holding lock
+        self.raft.lock().unwrap_or_else(std::sync::PoisonError::into_inner).propose(command)?;
         Ok(None)
     }
 
@@ -168,6 +184,16 @@ impl RpcEndpoint {
                 // wrong scheduler type burns an eval meant for another.
                 Ok(Response::Eval(self.eval_queue.dequeue()?))
             },
+            Request::NodeHeartbeat { node_id } => {
+                let raft = self.raft.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                drop(raft.heartbeat(&node_id));
+                Ok(Response::Ack)
+            },
+            Request::NodeGetAllocs { node_id } => {
+                let raft = self.raft.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                let allocs: Vec<_> = raft.state().list_allocs().into_iter().filter(|a| a.node_id == node_id).collect();
+                Ok(Response::NodeAllocs { allocs })
+            },
         }
     }
 }
@@ -190,11 +216,11 @@ fn eval_id_for(job_name: &str) -> EvalId {
 ///
 /// Returns an error if serialisation fails, the frame exceeds [`MAX_FRAME`], or
 /// the underlying write fails.
-async fn write_frame<W, T>(w: &mut W, msg: &T) -> Result<()>
+async fn write_frame<W>(w: &mut W, msg: &impl Serialize) -> Result<()>
 where
-    W: AsyncWriteExt + Unpin,
-    T: Serialize,
+    W: AsyncWrite + Unpin,
 {
+    use tokio::io::AsyncWriteExt;
     let bytes = serde_json::to_vec(msg)?;
     if bytes.len() > MAX_FRAME {
         return Err(Error::Runtime("rpc frame exceeds maximum size".to_owned()));
@@ -215,9 +241,10 @@ where
 /// deserialisation failure.
 async fn read_frame<R, T>(r: &mut R) -> Result<Option<T>>
 where
-    R: AsyncReadExt + Unpin,
+    R: AsyncRead + Unpin,
     T: DeserializeOwned,
 {
+    use tokio::io::AsyncReadExt;
     let mut len_buf = [0u8; 4];
     if let Err(e) = r.read_exact(&mut len_buf).await {
         if e.kind() == std::io::ErrorKind::UnexpectedEof {
@@ -234,19 +261,54 @@ where
     Ok(Some(serde_json::from_slice(&buf)?))
 }
 
+// ---- mTLS-capable transport -----------------------------------------------
+
+/// Internal transport: plain TCP or mTLS-encrypted.
+enum Transport {
+    /// Plain TCP connection.
+    Plain(TcpStream),
+    /// mTLS-wrapped connection.
+    Tls(Box<TlsStream<TcpStream>>),
+}
+
+// ---- server side ---------------------------------------------------------
+
 /// A TCP RPC server: accepts connections and dispatches framed [`Request`]s
 /// through a shared [`RpcEndpoint`], writing back each [`Response`].
-#[derive(Debug, Clone)]
+///
+/// When a TLS acceptor is configured, accepted connections are wrapped in mTLS
+/// before serving. Plain TCP is used when the acceptor is `None` (backward
+/// compatible).
 pub struct RpcServer {
     /// The endpoint requests are dispatched through.
     endpoint: Arc<RpcEndpoint>,
+    /// Optional mTLS acceptor. When set, every accepted connection is wrapped
+    /// in a rustls server-side session before reading requests.
+    tls_acceptor: Option<TlsAcceptor>,
+}
+
+impl std::fmt::Debug for RpcServer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RpcServer")
+            .field("endpoint", &self.endpoint)
+            .field("tls_acceptor", &self.tls_acceptor.as_ref().map(|_| "<config>"))
+            .finish()
+    }
 }
 
 impl RpcServer {
-    /// Create a server over the given endpoint.
+    /// Create a server over the given endpoint, without TLS.
     #[must_use]
     pub const fn new(endpoint: Arc<RpcEndpoint>) -> Self {
-        Self { endpoint }
+        Self { endpoint, tls_acceptor: None }
+    }
+
+    /// Attach an mTLS acceptor. When set, every accepted connection is wrapped
+    /// in TLS before dispatching.
+    #[must_use]
+    pub fn with_tls(mut self, tls: TlsAcceptor) -> Self {
+        self.tls_acceptor = Some(tls);
+        self
     }
 
     /// Accept connections on `listener` forever, serving each on its own task.
@@ -259,7 +321,20 @@ impl RpcServer {
         loop {
             let (stream, _peer) = listener.accept().await?;
             let endpoint = Arc::clone(&self.endpoint);
-            tokio::spawn(serve_conn(stream, endpoint));
+            let tls = self.tls_acceptor.clone();
+            tokio::spawn(async move {
+                let transport = match tls {
+                    Some(acceptor) => match acceptor.accept(stream).await {
+                        Ok(tls_stream) => Transport::Tls(Box::new(TlsStream::Server(tls_stream))),
+                        Err(e) => {
+                            tracing::warn!("mTLS handshake failed: {e}");
+                            return;
+                        },
+                    },
+                    None => Transport::Plain(stream),
+                };
+                serve_conn(transport, endpoint).await;
+            });
         }
     }
 }
@@ -269,41 +344,149 @@ impl RpcServer {
 ///
 /// ponytail: a handler error closes the conn rather than returning a typed error
 /// frame — add a `Response::Error` variant if clients need the failure reason.
-async fn serve_conn(mut stream: TcpStream, endpoint: Arc<RpcEndpoint>) {
-    while let Ok(Some(req)) = read_frame::<_, Request>(&mut stream).await {
-        let Ok(resp) = endpoint.handle(req) else { break };
-        if write_frame(&mut stream, &resp).await.is_err() {
-            break;
+async fn serve_conn(mut transport: Transport, endpoint: Arc<RpcEndpoint>) {
+    loop {
+        let req = match transport {
+            Transport::Plain(ref mut s) => match read_frame::<_, Request>(s).await {
+                Ok(Some(r)) => r,
+                _ => return,
+            },
+            Transport::Tls(ref mut s) => match read_frame::<_, Request>(s.as_mut()).await {
+                Ok(Some(r)) => r,
+                _ => return,
+            },
+        };
+        let Ok(resp) = endpoint.handle(req) else { return };
+        let ok = match transport {
+            Transport::Plain(ref mut s) => write_frame(s, &resp).await.is_ok(),
+            Transport::Tls(ref mut s) => write_frame(s.as_mut(), &resp).await.is_ok(),
+        };
+        if !ok {
+            return;
         }
     }
 }
 
+// ---- client side ---------------------------------------------------------
+
 /// A TCP RPC client: one connection, one request/response at a time.
-#[derive(Debug)]
+///
+/// When a `rustls::ClientConfig` is provided via [`connect_tls`](Self::connect_tls),
+/// the TCP stream is wrapped in mTLS before exchanging frames.
+/// On receiving `NotLeader`, the client automatically reconnects to the
+/// leader and retries once (transparent to callers).
 pub struct RpcClient {
-    /// The open connection to a server.
-    stream: TcpStream,
+    /// The inner transport — either a raw TCP stream or an mTLS-wrapped one.
+    transport: Transport,
+    /// Saved TLS connector + server name for reconnection on `NotLeader`.
+    tls_state: Option<(TlsConnector, rustls::pki_types::ServerName<'static>)>,
+}
+
+impl std::fmt::Debug for RpcClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RpcClient")
+            .field(
+                "transport",
+                &match self.transport {
+                    Transport::Plain(_) => "Plain",
+                    Transport::Tls(_) => "Tls",
+                },
+            )
+            .field("tls_state", &self.tls_state.as_ref().map(|_| "<config>"))
+            .finish()
+    }
 }
 
 impl RpcClient {
-    /// Connect to a server at `addr` (`host:port`).
+    /// Connect to a server at `addr` (`host:port`) with plain TCP.
     ///
     /// # Errors
     ///
     /// Returns an error if the connection cannot be established.
     pub async fn connect(addr: &str) -> Result<Self> {
-        Ok(Self { stream: TcpStream::connect(addr).await? })
+        Self::connect_tls(addr, None).await
+    }
+
+    /// Connect with optional mTLS from a pre-built [`rustls::ClientConfig`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the TCP connection or TLS handshake fails.
+    pub async fn connect_tls(addr: &str, tls_config: Option<Arc<rustls::ClientConfig>>) -> Result<Self> {
+        let stream = TcpStream::connect(addr).await?;
+        let (transport, tls_state) = match tls_config {
+            Some(cfg) => {
+                let connector = TlsConnector::from(cfg);
+                let host = addr.split(':').next().unwrap_or("localhost");
+                let name = rustls::pki_types::ServerName::try_from(host.to_owned())
+                    .map_err(|e| Error::Runtime(format!("invalid server name for TLS: {e}")))?;
+                let tls_stream = connector
+                    .connect(name.clone(), stream)
+                    .await
+                    .map_err(|e| Error::Runtime(format!("mTLS handshake failed: {e}")))?;
+                (Transport::Tls(Box::new(TlsStream::Client(tls_stream))), Some((connector, name)))
+            },
+            None => (Transport::Plain(stream), None),
+        };
+        Ok(Self { transport, tls_state })
     }
 
     /// Send `request` and await the server's response.
     ///
+    /// If the server responds with `NotLeader`, the client automatically
+    /// reconnects to the leader address and retries the request once. This
+    /// is transparent to callers.
+    ///
     /// # Errors
     ///
     /// Returns an error if the write fails, the connection closes before a
-    /// response, or a frame is malformed.
+    /// response, or a frame is malformed. Returns an error immediately when
+    /// the `NotLeader` response carries no leader address.
     pub async fn call(&mut self, request: &Request) -> Result<Response> {
-        write_frame(&mut self.stream, request).await?;
-        read_frame(&mut self.stream).await?.ok_or_else(|| Error::Runtime("rpc connection closed by server".to_owned()))
+        // Write request.
+        match self.transport {
+            Transport::Plain(ref mut s) => write_frame(s, request).await?,
+            Transport::Tls(ref mut s) => write_frame(s.as_mut(), request).await?,
+        }
+        // Read response.
+        let resp = match self.transport {
+            Transport::Plain(ref mut s) => read_frame(s).await,
+            Transport::Tls(ref mut s) => read_frame(s.as_mut()).await,
+        }
+        .unwrap_or(None)
+        .ok_or_else(|| Error::Runtime("rpc connection closed by server".to_owned()))?;
+
+        // Auto-forward on NotLeader — reconnect to the leader and retry once.
+        if let Response::NotLeader { ref leader_addr } = resp {
+            let addr = match leader_addr {
+                Some(a) => a.clone(),
+                None => return Ok(resp), // no address to forward to; pass through
+            };
+            tracing::debug!("not-leader response, reconnecting to {addr}");
+            if let Some((ref connector, ref name)) = self.tls_state {
+                let stream = TcpStream::connect(addr.as_str()).await?;
+                let tls_stream = connector
+                    .connect(name.clone(), stream)
+                    .await
+                    .map_err(|e| Error::Runtime(format!("mTLS handshake with leader {addr} failed: {e}")))?;
+                self.transport = Transport::Tls(Box::new(TlsStream::Client(tls_stream)));
+            } else {
+                self.transport = Transport::Plain(TcpStream::connect(addr.as_str()).await?);
+            }
+            // Retry once on the new connection.
+            match self.transport {
+                Transport::Plain(ref mut s) => write_frame(s, request).await?,
+                Transport::Tls(ref mut s) => write_frame(s.as_mut(), request).await?,
+            }
+            return match self.transport {
+                Transport::Plain(ref mut s) => read_frame(s).await,
+                Transport::Tls(ref mut s) => read_frame(s.as_mut()).await,
+            }
+            .unwrap_or(None)
+            .ok_or_else(|| Error::Runtime("rpc connection closed by server on retry".to_owned()));
+        }
+
+        Ok(resp)
     }
 }
 
@@ -438,6 +621,23 @@ mod tests {
         assert_eq!(cleanup.trigger, EvalTrigger::JobDeregister);
     }
 
+    #[test]
+    fn node_heartbeat_acknowledged() {
+        let ep = RpcEndpoint::new(EvalQueue::new());
+        // Register the node first.
+        ep.handle(Request::NodeRegister(node("n1"))).unwrap();
+        // Heartbeat should be acknowledged.
+        let resp = ep.handle(Request::NodeHeartbeat { node_id: "n1".into() }).unwrap();
+        assert!(matches!(resp, Response::Ack));
+    }
+
+    #[test]
+    fn node_get_allocs_returns_empty_for_unknown_node() {
+        let ep = RpcEndpoint::new(EvalQueue::new());
+        let resp = ep.handle(Request::NodeGetAllocs { node_id: "n1".into() }).unwrap();
+        assert!(matches!(resp, Response::NodeAllocs { ref allocs } if allocs.is_empty()));
+    }
+
     // ---- wire transport --------------------------------------------------
 
     async fn spawn_server(endpoint: Arc<RpcEndpoint>) -> String {
@@ -501,5 +701,48 @@ mod tests {
 
         let resp = client.call(&Request::JobRegister(Job { name: "x".to_owned(), ..Job::default() })).await.unwrap();
         assert!(matches!(resp, Response::NotLeader { .. }));
+    }
+
+    // ---- NotLeader auto-forward ------------------------------------------
+
+    #[tokio::test]
+    async fn not_leader_without_address_passes_through() {
+        // When the leader_addr is None, the client should pass the NotLeader
+        // response through to the caller rather than silently staying
+        // connected to a non-leader.
+        let endpoint = Arc::new(RpcEndpoint::with_raft(EvalQueue::new(), Arc::new(Mutex::new(RaftNode::new("f1")))));
+        let addr = spawn_server(Arc::clone(&endpoint)).await;
+        let mut client = RpcClient::connect(&addr).await.unwrap();
+
+        let resp = client.call(&Request::NodeRegister(node("n1"))).await.unwrap();
+        assert!(
+            matches!(resp, Response::NotLeader { leader_addr: None }),
+            "NotLeader passed through without addr: {resp:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn not_leader_auto_forwards_to_leader() {
+        // Set up a two-node scenario: a leader (bootstrap) and a follower
+        // that knows the leader's address. The follower's NotLeader response
+        // triggers auto-forward.
+        let leader_node = Arc::new(Mutex::new(RaftNode::bootstrap("leader")));
+        let leader_ep = RpcEndpoint::with_raft(EvalQueue::new(), Arc::clone(&leader_node));
+        let leader_addr = spawn_server(Arc::new(leader_ep)).await;
+
+        // Create a follower whose commit returns NotLeader with the leader addr.
+        let mut follower = RaftNode::new("f1");
+        follower.set_leader_addr(Some(leader_addr.clone()));
+        let follower_node = Arc::new(Mutex::new(follower));
+        let follower_ep = RpcEndpoint::with_raft(EvalQueue::new(), Arc::clone(&follower_node));
+        let follower_addr = spawn_server(Arc::new(follower_ep)).await;
+
+        // Register a node on the leader first so the state has it.
+        leader_node.lock().unwrap().state_mut().upsert_node(node("n1")).unwrap();
+
+        // Connect to the follower. A write should auto-forward to the leader.
+        let mut client = RpcClient::connect(&follower_addr).await.unwrap();
+        let resp = client.call(&Request::NodeRegister(node("n1"))).await.expect("auto-forward should succeed");
+        assert!(matches!(resp, Response::Ack));
     }
 }

@@ -51,6 +51,12 @@ impl Fsm {
         &self.state
     }
 
+    /// Borrow the underlying state mutably for direct writes (test-only path).
+    #[must_use]
+    pub fn state_mut(&mut self) -> &mut StateStore {
+        &mut self.state
+    }
+
     /// Apply a committed command to the state.
     ///
     /// # Errors

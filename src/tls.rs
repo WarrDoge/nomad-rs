@@ -17,7 +17,7 @@ use crate::error::{Error, Result};
 ///
 /// All paths are filesystem paths that must exist at the time
 /// [`TlsConfig::validate`] is called.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 pub struct TlsConfig {
     /// Path to the PEM-encoded X.509 certificate chain.
     pub cert_path: String,

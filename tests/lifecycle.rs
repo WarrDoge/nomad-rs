@@ -2,9 +2,9 @@
 
 //! Lifecycle smoke tests for the agent stubs (client, server, scheduler).
 //!
-//! These pin the current stub contract: each component constructs from
-//! configuration, runs once, and returns `Ok`. They exist so the public
-//! lifecycle surface stays covered as real behaviour lands behind it.
+//! These pin the current stub contract: server and scheduler construct from
+//! configuration, run once, and return `Ok`. The client requires a running
+//! server to connect to, so its lifecycle test verifies the error path.
 
 use nomad_rs::client::Client;
 use nomad_rs::config::Config;
@@ -14,7 +14,8 @@ use nomad_rs::server::Server;
 #[tokio::test]
 async fn client_constructs_and_runs_to_ok() {
     let mut client = Client::new(Config::default());
-    assert!(client.run().await.is_ok());
+    // Without a server, run() will fail to connect — this is expected.
+    assert!(client.run().await.is_err());
 }
 
 #[tokio::test]

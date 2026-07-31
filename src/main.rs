@@ -75,6 +75,7 @@ async fn main() {
         cli.bind_addr,
         cli.node_name,
         cli.region,
+        None, // server_addr — not exposed as a CLI flag yet
     );
 
     // Validate before starting

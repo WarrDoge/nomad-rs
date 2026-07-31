@@ -62,6 +62,8 @@ impl std::fmt::Display for LogLevel {
     }
 }
 
+use crate::tls::TlsConfig;
+
 /// Top-level configuration for a Nomad agent (client, server, or both).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -80,6 +82,11 @@ pub struct Config {
     pub node_name: String,
     /// The region this node belongs to.
     pub region: String,
+    /// Address of the Nomad server to connect to (client mode),
+    /// or the server's advertise address. Formatted as `host:port`.
+    pub server_addr: String,
+    /// Optional TLS configuration for mTLS transport.
+    pub tls_config: Option<TlsConfig>,
     /// Path to the configuration file (used for SIGHUP reload).
     #[serde(skip)]
     pub config_file: Option<PathBuf>,
@@ -98,6 +105,8 @@ impl Default for Config {
             datacenter: "dc1".to_owned(),
             node_name: hostname,
             region: "global".to_owned(),
+            server_addr: "127.0.0.1:4647".to_owned(),
+            tls_config: None,
             config_file: None,
         }
     }
@@ -126,6 +135,7 @@ impl Config {
     /// - `NOMAD_DATACENTER`
     /// - `NOMAD_NODE_NAME`
     /// - `NOMAD_REGION`
+    /// - `NOMAD_SERVER_ADDR`
     #[must_use]
     pub fn merge_env(mut self) -> Self {
         if let Ok(v) = std::env::var("NOMAD_DATA_DIR") {
@@ -151,6 +161,9 @@ impl Config {
         if let Ok(v) = std::env::var("NOMAD_REGION") {
             self.region = v;
         }
+        if let Ok(v) = std::env::var("NOMAD_SERVER_ADDR") {
+            self.server_addr = v;
+        }
         self
     }
 
@@ -158,6 +171,7 @@ impl Config {
     ///
     /// Each field is set only when the corresponding `Option` is `Some`.
     #[must_use]
+    #[allow(clippy::too_many_arguments, reason = "builder merging CLI flags into config")]
     pub fn merge_cli(
         self,
         data_dir: Option<PathBuf>,
@@ -166,6 +180,7 @@ impl Config {
         bind_addr: Option<String>,
         node_name: Option<String>,
         region: Option<String>,
+        server_addr: Option<String>,
     ) -> Self {
         Self {
             data_dir: data_dir.unwrap_or(self.data_dir),
@@ -174,6 +189,7 @@ impl Config {
             bind_addr: bind_addr.unwrap_or(self.bind_addr),
             node_name: node_name.unwrap_or(self.node_name),
             region: region.unwrap_or(self.region),
+            server_addr: server_addr.unwrap_or(self.server_addr),
             ..self
         }
     }
@@ -328,6 +344,7 @@ log_dir = "/tmp/nomad-logs"
             None,
             Some("cli-node".to_owned()),
             Some("cli-region".to_owned()),
+            None, // server_addr — not set by CLI
         );
         assert_eq!(merged.data_dir, PathBuf::from("/cli/data"));
         assert_eq!(merged.log_level, LogLevel::Trace);
