@@ -13,11 +13,33 @@ use crate::jobspec::{Resources, TaskGroup};
 use crate::node::{Node, NodeStatus, SchedulingEligibility};
 use crate::state::StateStore;
 
+/// Why a set of instances could not be placed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailureReason {
+    /// No node had enough free capacity (CPU, memory, or network).
+    NoCapacity,
+    /// No node satisfied the task group's hard constraints.
+    ConstraintsNotMet,
+}
+
+/// A record of instances that could not be placed during evaluation.
+#[derive(Debug, Clone)]
+pub struct PlacementFailure {
+    /// The task group that could not be fully placed.
+    pub task_group: String,
+    /// How many instances of this group could not be placed.
+    pub shortage: i32,
+    /// Why they could not be placed.
+    pub reason: FailureReason,
+}
+
 /// A set of placements the scheduler wants to apply for one evaluation.
 #[derive(Debug, Default, Clone)]
 pub struct Plan {
     /// Allocations to create.
     pub allocs: Vec<Allocation>,
+    /// Instances that could not be placed and why.
+    pub failures: Vec<PlacementFailure>,
 }
 
 /// A weighted node candidate for placement, produced by ranking.
@@ -240,6 +262,7 @@ pub fn process_eval(eval: &Evaluation, state: &StateStore) -> Plan {
         .collect();
     for group in &job.task_groups {
         let need = group_demand(group);
+        let placed_before = plan.allocs.len();
         // Build ranked candidates for this group.
         let has_affinities = !group.affinities.is_empty();
         let has_spreads = !group.spreads.is_empty();
@@ -286,6 +309,17 @@ pub fn process_eval(eval: &Evaluation, state: &StateStore) -> Plan {
                 old_avail.network_mbps -= need.network_mbps;
                 plan.allocs.push(make_alloc(eval, &plan, &job, group, need, best.node.id.as_str()));
             }
+        }
+        // Record any placement shortfall for this group.
+        let placed = plan.allocs.len() - placed_before;
+        let shortage = group.count.max(0) - i32::try_from(placed).unwrap_or(0);
+        if shortage > 0 {
+            let reason = if free.iter().any(|(n, _)| meets_constraints(n, group)) {
+                FailureReason::NoCapacity
+            } else {
+                FailureReason::ConstraintsNotMet
+            };
+            plan.failures.push(PlacementFailure { task_group: group.name.clone(), shortage, reason });
         }
     }
     plan
@@ -358,8 +392,9 @@ pub fn drain_queue(queue: &crate::eval_queue::EvalQueue, fsm: &mut Fsm) -> Resul
         match process_and_apply(&eval, fsm) {
             Ok(plan) => {
                 placed += plan.allocs.len();
-                // Wanted placement but got none → park as blocked for retry.
-                if plan.allocs.is_empty() && desired_count(&eval, fsm.state()) > 0 {
+                // Any placement failures → park the eval for retry when more
+                // resources become available (e.g. a node registers).
+                if !plan.failures.is_empty() {
                     queue.block(eval.clone())?;
                 }
                 queue.ack(eval.id.as_str())?;
@@ -781,5 +816,64 @@ mod tests {
         state.upsert_job(job_with("web", "g1", 100, 128)).unwrap();
         let plan = process_eval(&eval_for("web"), &state);
         assert!(plan.allocs.is_empty());
+    }
+
+    #[test]
+    fn process_eval_no_failures_when_fully_placed() {
+        // An eval that fully places records no failures.
+        let mut state = StateStore::new();
+        state.upsert_node(node_with("node1", 1000, 1024)).unwrap();
+        state.upsert_job(job_with("web", "g1", 500, 512)).unwrap();
+        let plan = process_eval(&eval_for("web"), &state);
+        assert_eq!(plan.allocs.len(), 1);
+        assert!(plan.failures.is_empty(), "fully placed eval has no failures");
+    }
+
+    #[test]
+    fn process_eval_capacity_failure_when_too_large() {
+        // An eval too large for any node records a capacity failure.
+        let mut state = StateStore::new();
+        state.upsert_node(node_with("node1", 1000, 1024)).unwrap();
+        state.upsert_job(job_with("big", "g1", 2000, 4096)).unwrap();
+        let plan = process_eval(&eval_for("big"), &state);
+        assert!(plan.allocs.is_empty());
+        assert_eq!(plan.failures.len(), 1);
+        assert_eq!(plan.failures[0].task_group, "g1");
+        assert_eq!(plan.failures[0].shortage, 1);
+        assert_eq!(plan.failures[0].reason, FailureReason::NoCapacity);
+    }
+
+    #[test]
+    fn process_eval_constraint_failure_when_no_node_satisfies() {
+        // An eval blocked by constraints records a constraint failure.
+        use crate::constraint::Constraint;
+        let mut state = StateStore::new();
+        let mut node = node_with("win1", 1000, 1024);
+        node.attributes.insert("os".to_owned(), "windows".to_owned());
+        state.upsert_node(node).unwrap();
+        let mut job = job_with("linux-only", "g1", 100, 128);
+        job.task_groups[0].constraints =
+            vec![Constraint { left: "os".to_owned(), right: "linux".to_owned(), operand: "=".to_owned() }];
+        state.upsert_job(job).unwrap();
+        let plan = process_eval(&eval_for("linux-only"), &state);
+        assert!(plan.allocs.is_empty());
+        assert_eq!(plan.failures.len(), 1);
+        assert_eq!(plan.failures[0].shortage, 1);
+        assert_eq!(plan.failures[0].reason, FailureReason::ConstraintsNotMet);
+    }
+
+    #[test]
+    fn process_eval_partial_failure_records_shortfall() {
+        // A group with count=5 where only 2 fit records shortage=3.
+        let mut state = StateStore::new();
+        state.upsert_node(node_with("node1", 600, 600)).unwrap();
+        let mut job = job_with("web", "g1", 250, 250);
+        job.task_groups[0].count = 5;
+        state.upsert_job(job).unwrap();
+        let plan = process_eval(&eval_for("web"), &state);
+        assert_eq!(plan.allocs.len(), 2);
+        assert_eq!(plan.failures.len(), 1);
+        assert_eq!(plan.failures[0].shortage, 3);
+        assert_eq!(plan.failures[0].reason, FailureReason::NoCapacity);
     }
 }
