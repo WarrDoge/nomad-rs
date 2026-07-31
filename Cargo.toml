@@ -75,6 +75,7 @@ tracing-appender = "0.2"
 tracing-opentelemetry = "0.29"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 x509-parser = "0.17"
+humantime-serde = "1"
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }

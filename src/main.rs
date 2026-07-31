@@ -75,6 +75,7 @@ async fn main() {
         cli.bind_addr,
         cli.node_name,
         cli.region,
+        None, // heartbeat_interval — not exposed as CLI flag yet
     );
 
     // Validate before starting

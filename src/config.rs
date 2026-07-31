@@ -7,6 +7,7 @@
 //! overridden by environment variables, and overridden again by CLI flags.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use serde::Deserialize;
 
@@ -62,6 +63,12 @@ impl std::fmt::Display for LogLevel {
     }
 }
 
+/// Default interval for client heartbeat ticks (5 seconds).
+#[must_use]
+const fn default_heartbeat_interval() -> Duration {
+    Duration::from_secs(5)
+}
+
 /// Top-level configuration for a Nomad agent (client, server, or both).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -80,6 +87,10 @@ pub struct Config {
     pub node_name: String,
     /// The region this node belongs to.
     pub region: String,
+    /// How often to send a heartbeat / status tick (default: 5 seconds).
+    #[serde(default = "default_heartbeat_interval")]
+    #[serde(with = "humantime_serde")]
+    pub heartbeat_interval: Duration,
     /// Path to the configuration file (used for SIGHUP reload).
     #[serde(skip)]
     pub config_file: Option<PathBuf>,
@@ -98,6 +109,7 @@ impl Default for Config {
             datacenter: "dc1".to_owned(),
             node_name: hostname,
             region: "global".to_owned(),
+            heartbeat_interval: Duration::from_secs(5),
             config_file: None,
         }
     }
@@ -126,6 +138,7 @@ impl Config {
     /// - `NOMAD_DATACENTER`
     /// - `NOMAD_NODE_NAME`
     /// - `NOMAD_REGION`
+    /// - `NOMAD_HEARTBEAT_INTERVAL` (in seconds, parsed as u64)
     #[must_use]
     pub fn merge_env(mut self) -> Self {
         if let Ok(v) = std::env::var("NOMAD_DATA_DIR") {
@@ -151,6 +164,11 @@ impl Config {
         if let Ok(v) = std::env::var("NOMAD_REGION") {
             self.region = v;
         }
+        if let Ok(v) = std::env::var("NOMAD_HEARTBEAT_INTERVAL")
+            && let Ok(secs) = v.parse::<u64>()
+        {
+            self.heartbeat_interval = Duration::from_secs(secs);
+        }
         self
     }
 
@@ -158,6 +176,7 @@ impl Config {
     ///
     /// Each field is set only when the corresponding `Option` is `Some`.
     #[must_use]
+    #[allow(clippy::too_many_arguments)]
     pub fn merge_cli(
         self,
         data_dir: Option<PathBuf>,
@@ -166,6 +185,7 @@ impl Config {
         bind_addr: Option<String>,
         node_name: Option<String>,
         region: Option<String>,
+        heartbeat_interval: Option<Duration>,
     ) -> Self {
         Self {
             data_dir: data_dir.unwrap_or(self.data_dir),
@@ -174,6 +194,7 @@ impl Config {
             bind_addr: bind_addr.unwrap_or(self.bind_addr),
             node_name: node_name.unwrap_or(self.node_name),
             region: region.unwrap_or(self.region),
+            heartbeat_interval: heartbeat_interval.unwrap_or(self.heartbeat_interval),
             ..self
         }
     }
@@ -328,6 +349,7 @@ log_dir = "/tmp/nomad-logs"
             None,
             Some("cli-node".to_owned()),
             Some("cli-region".to_owned()),
+            None,
         );
         assert_eq!(merged.data_dir, PathBuf::from("/cli/data"));
         assert_eq!(merged.log_level, LogLevel::Trace);
