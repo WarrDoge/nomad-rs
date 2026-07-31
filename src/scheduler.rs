@@ -260,31 +260,38 @@ pub fn process_eval(eval: &Evaluation, state: &StateStore) -> Plan {
             // Scoring path: rank candidates, try best first.
             let spread_ranker = SpreadRanker::new(group);
             for _ in 0..group.count.max(0) {
-                let mut scored: Vec<Candidate> = free
+                // Scan candidates once: track the best by max_by (O(M) instead of full sort O(M log M)),
+                // and keep the original index to avoid a linear re-find after picking.
+                let Some(best_idx) = free
                     .iter()
                     .enumerate()
                     .filter(|(_, (node, avail))| fits(*avail, need) && meets_constraints(node, group))
                     .map(|(idx, (node, avail))| {
                         let spread_bonus = spread_ranker.bonus_for(node, state);
-                        Candidate {
-                            node: node.clone(),
-                            free: *avail,
-                            score: score_node(node, avail, &need, group, spread_bonus),
-                            order: idx,
-                        }
+                        (
+                            idx,
+                            Candidate {
+                                node: node.clone(),
+                                free: *avail,
+                                score: score_node(node, avail, &need, group, spread_bonus),
+                                order: idx,
+                            },
+                        )
                     })
-                    .collect();
-                // Sort descending by score, then by original order for stability.
-                scored.sort_by(|a, b| b.score.total_cmp(&a.score).then_with(|| a.order.cmp(&b.order)));
-                let Some(best) = scored.into_iter().next() else { break };
-                // Locate the matching node in free and decrement its capacity.
-                let Some((_, old_avail)) = free.iter_mut().find(|(n, _)| n.id.as_str() == best.node.id.as_str()) else {
-                    continue;
+                    .max_by(|(_, a), (_, b)| {
+                        // Descending by score, then by original order for stability.
+                        b.score.total_cmp(&a.score).then_with(|| a.order.cmp(&b.order))
+                    })
+                    .map(|(idx, _)| idx)
+                else {
+                    break;
                 };
+                // Use the stored index to decrement free capacity directly.
+                let (_, old_avail) = &mut free[best_idx];
                 old_avail.cpu_mhz -= need.cpu_mhz;
                 old_avail.memory_mb -= need.memory_mb;
                 old_avail.network_mbps -= need.network_mbps;
-                plan.allocs.push(make_alloc(eval, &plan, &job, group, need, best.node.id.as_str()));
+                plan.allocs.push(make_alloc(eval, &plan, &job, group, need, free[best_idx].0.id.as_str()));
             }
         }
     }
