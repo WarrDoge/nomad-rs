@@ -275,6 +275,32 @@ impl EvalQueue {
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+
+    /// A consistent snapshot of the queue's depth: pending (waiting on the heap),
+    /// in-flight (dequeued but not acked), and blocked (parked until unblock).
+    ///
+    /// Unlike calling `len`, `in_flight_len`, and `blocked_len` separately, this
+    /// takes all three values under a single lock so the caller sees a consistent
+    /// picture that cannot drift between thread interleavings.
+    #[must_use]
+    pub fn depth(&self) -> QueueDepth {
+        match self.inner.lock() {
+            Ok(g) => QueueDepth { pending: g.heap.len(), in_flight: g.in_flight.len(), blocked: g.blocked.len() },
+            Err(_) => QueueDepth::default(),
+        }
+    }
+}
+
+/// A consistent snapshot of the eval queue's three depth counters, taken under
+/// a single lock so callers never see a mismatched view.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
+pub struct QueueDepth {
+    /// Evaluations waiting on the pending heap, ordered by priority.
+    pub pending: usize,
+    /// Evaluations dequeued but not yet acknowledged or nacked.
+    pub in_flight: usize,
+    /// Evaluations parked because placement is impossible right now.
+    pub blocked: usize,
 }
 
 impl Default for EvalQueue {
@@ -484,5 +510,45 @@ mod tests {
             ids.push(eval.id);
         }
         assert_eq!(ids, &["b", "d", "a", "c"]);
+    }
+
+    // ---- depth tests -------------------------------------------------------
+
+    #[test]
+    fn depth_reports_zeros_for_empty_queue() {
+        let q = EvalQueue::new();
+        let d = q.depth();
+        assert_eq!(d, QueueDepth { pending: 0, in_flight: 0, blocked: 0 });
+    }
+
+    #[test]
+    fn depth_shows_enqueued_evals_as_pending() {
+        let q = EvalQueue::new();
+        q.enqueue(pending_eval("e1", 50)).unwrap();
+        q.enqueue(pending_eval("e2", 60)).unwrap();
+        let d = q.depth();
+        assert_eq!(d.pending, 2);
+        assert_eq!(d.in_flight, 0);
+        assert_eq!(d.blocked, 0);
+    }
+
+    #[test]
+    fn depth_shows_dequeued_eval_as_in_flight_not_pending() {
+        let q = EvalQueue::new();
+        q.enqueue(pending_eval("e1", 50)).unwrap();
+        q.dequeue().unwrap().unwrap();
+        let d = q.depth();
+        assert_eq!(d.pending, 0, "removed from pending");
+        assert_eq!(d.in_flight, 1, "now in flight");
+    }
+
+    #[test]
+    fn depth_shows_blocked_eval_as_blocked() {
+        let q = EvalQueue::new();
+        q.block(pending_eval("b1", 50)).unwrap();
+        let d = q.depth();
+        assert_eq!(d.pending, 0, "blocked evals are not pending");
+        assert_eq!(d.in_flight, 0);
+        assert_eq!(d.blocked, 1);
     }
 }
