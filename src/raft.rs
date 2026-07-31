@@ -41,13 +41,17 @@ pub struct RaftNode {
     log: Vec<Command>,
     /// The state machine committed entries are applied to.
     fsm: Fsm,
+    /// Address of the current leader, if known. Set by the cluster membership
+    /// layer; a follower that knows the leader address includes it in
+    /// `NotLeader` responses so the caller can auto-forward.
+    leader_addr: Option<String>,
 }
 
 impl RaftNode {
     /// Create a follower node that will join an existing cluster.
     #[must_use]
     pub fn new(id: &str) -> Self {
-        Self { id: id.to_owned(), role: RaftRole::Follower, log: Vec::new(), fsm: Fsm::new() }
+        Self { id: id.to_owned(), role: RaftRole::Follower, log: Vec::new(), fsm: Fsm::new(), leader_addr: None }
     }
 
     /// Create a single-node bootstrap leader.
@@ -106,8 +110,13 @@ impl RaftNode {
 
     /// Address of the current leader, if one is known.
     #[must_use]
-    pub const fn leader_addr(&self) -> Option<String> {
-        None
+    pub fn leader_addr(&self) -> Option<String> {
+        self.leader_addr.clone()
+    }
+
+    /// Set the known leader address (used by the cluster membership layer).
+    pub fn set_leader_addr(&mut self, addr: Option<String>) {
+        self.leader_addr = addr;
     }
 }
 
