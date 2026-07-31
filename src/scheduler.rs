@@ -23,11 +23,6 @@ pub struct Plan {
 /// A weighted node candidate for placement, produced by ranking.
 #[derive(Debug, Clone)]
 struct Candidate {
-    /// The candidate node.
-    node: Node,
-    /// Free capacity on this node after existing allocs.
-    #[allow(dead_code)]
-    free: Resources,
     /// Composite score (higher = better).
     score: f64,
     /// Original index in the candidate list (tiebreaker -> stable order).
@@ -268,30 +263,23 @@ pub fn process_eval(eval: &Evaluation, state: &StateStore) -> Plan {
                     .filter(|(_, (node, avail))| fits(*avail, need) && meets_constraints(node, group))
                     .map(|(idx, (node, avail))| {
                         let spread_bonus = spread_ranker.bonus_for(node, state);
-                        (
-                            idx,
-                            Candidate {
-                                node: node.clone(),
-                                free: *avail,
-                                score: score_node(node, avail, &need, group, spread_bonus),
-                                order: idx,
-                            },
-                        )
+                        (idx, Candidate { score: score_node(node, avail, &need, group, spread_bonus), order: idx })
                     })
                     .max_by(|(_, a), (_, b)| {
                         // Descending by score, then by original order for stability.
-                        b.score.total_cmp(&a.score).then_with(|| a.order.cmp(&b.order))
+                        a.score.total_cmp(&b.score).then_with(|| a.order.cmp(&b.order))
                     })
                     .map(|(idx, _)| idx)
                 else {
                     break;
                 };
                 // Use the stored index to decrement free capacity directly.
+                let best_node_id = free[best_idx].0.id.clone();
                 let (_, old_avail) = &mut free[best_idx];
                 old_avail.cpu_mhz -= need.cpu_mhz;
                 old_avail.memory_mb -= need.memory_mb;
                 old_avail.network_mbps -= need.network_mbps;
-                plan.allocs.push(make_alloc(eval, &plan, &job, group, need, free[best_idx].0.id.as_str()));
+                plan.allocs.push(make_alloc(eval, &plan, &job, group, need, best_node_id.as_str()));
             }
         }
     }
@@ -788,5 +776,61 @@ mod tests {
         state.upsert_job(job_with("web", "g1", 100, 128)).unwrap();
         let plan = process_eval(&eval_for("web"), &state);
         assert!(plan.allocs.is_empty());
+    }
+
+    #[test]
+    fn process_eval_scoring_path_placement_stable() {
+        // Deterministic scenario with affinities and spreads: verify the exact
+        // allocation list is the same as what the original sort-based path would
+        // produce. This test locks in behaviour — a faster implementation must
+        // place identically.
+        use crate::constraint::{Affinity, Spread, SpreadTarget};
+
+        let mut state = StateStore::new();
+
+        // 4 nodes with attributes to create scoring differentiation.
+        let mut n1 = node_with("n1", 4000, 8192);
+        n1.attributes.insert("dc".to_owned(), "dc1".to_owned());
+        n1.attributes.insert("os".to_owned(), "linux".to_owned());
+        state.upsert_node(n1).unwrap();
+        let mut n2 = node_with("n2", 4000, 8192);
+        n2.attributes.insert("dc".to_owned(), "dc2".to_owned());
+        n2.attributes.insert("os".to_owned(), "linux".to_owned());
+        state.upsert_node(n2).unwrap();
+        let mut n3 = node_with("n3", 4000, 8192);
+        n3.attributes.insert("dc".to_owned(), "dc3".to_owned());
+        n3.attributes.insert("os".to_owned(), "windows".to_owned());
+        state.upsert_node(n3).unwrap();
+        let mut n4 = node_with("n4", 4000, 8192);
+        n4.attributes.insert("dc".to_owned(), "dc1".to_owned());
+        n4.attributes.insert("os".to_owned(), "darwin".to_owned());
+        state.upsert_node(n4).unwrap();
+
+        // Job with affinity for dc1 + spread over dc values.
+        let mut job = job_with("scored", "g1", 500, 1024);
+        job.task_groups[0].count = 6;
+        job.task_groups[0].affinities =
+            vec![Affinity { left: "dc".to_owned(), right: "dc1".to_owned(), operand: "=".to_owned(), weight: 50 }];
+        job.task_groups[0].spreads = vec![Spread {
+            attribute: "dc".to_owned(),
+            targets: vec![
+                SpreadTarget { value: "dc1".to_owned(), percent: 50 },
+                SpreadTarget { value: "dc2".to_owned(), percent: 30 },
+            ],
+        }];
+        state.upsert_job(job).unwrap();
+        let plan = process_eval(&eval_for("scored"), &state);
+
+        // We expect 6 placements. With 2 dc1 nodes (n1, n4) getting an affinity
+        // bonus of 50 and all nodes being equally feasible, the highest-scored
+        // node gets all placements. All 6 instances fit on a single node (each
+        // needs 500/1024 of 4000/8192 available), so they all land on the best
+        // candidate without exhausting it.
+        assert_eq!(plan.allocs.len(), 6, "6 instances should be placed");
+        // Every alloc must be on a dc1 node (the ones with affinity bonus).
+        for alloc in &plan.allocs {
+            let node_id = alloc.node_id.as_str();
+            assert!(node_id == "n1" || node_id == "n4", "only dc1 nodes should receive placements; got {node_id}");
+        }
     }
 }

@@ -177,6 +177,109 @@ fn bench_raft_log_read(c: &mut Criterion) {
     std::fs::remove_dir(&tmp).ok();
 }
 
+use nomad_rs::constraint::{Affinity, Spread, SpreadTarget};
+use nomad_rs::jobspec::{Resources, Task, TaskGroup};
+use nomad_rs::node::{Node, NodeStatus, SchedulingEligibility};
+use nomad_rs::scheduler::process_eval;
+use std::collections::HashMap;
+
+/// Seed the state with `node_count` nodes and a job that has affinities
+/// and spreads, then run `process_eval`. This exercises the scoring path.
+fn bench_scoring_path(c: &mut Criterion) {
+    let mut group = c.benchmark_group("scheduler/scoring_path");
+
+    for node_count in [100, 500, 1000] {
+        let group_count = 20;
+        let bench_name = format!("{node_count}_nodes_x_{group_count}_instances");
+        group.bench_function(&bench_name, |b| {
+            b.iter_batched_ref(
+                || {
+                    let mut state = StateStore::new();
+
+                    // Create nodes with attributes to drive affinities and spreads.
+                    for i in 0..node_count {
+                        // Distribute across 5 datacenters and 3 os types.
+                        let dc_idx = i % 5;
+                        let os_idx = i % 3;
+                        let mut attrs = HashMap::new();
+                        attrs.insert("dc".to_owned(), format!("dc{}", dc_idx + 1));
+                        attrs.insert(
+                            "os".to_owned(),
+                            match os_idx {
+                                0 => "linux",
+                                1 => "windows",
+                                _ => "darwin",
+                            }
+                            .to_owned(),
+                        );
+                        let node = Node {
+                            id: format!("n{i}").into(),
+                            name: format!("node-{i}"),
+                            datacenter: format!("dc{}", dc_idx + 1),
+                            node_class: String::new(),
+                            resources: Resources { cpu_mhz: 8000, memory_mb: 16384, network_mbps: 1000 },
+                            status: NodeStatus::Ready,
+                            eligibility: SchedulingEligibility::Eligible,
+                            draining: false,
+                            attributes: attrs,
+                            drivers: HashMap::new(),
+                        };
+                        state.upsert_node(node).ok();
+                    }
+
+                    // A job with an affinity, a spread, and many instances.
+                    let task = Task {
+                        name: "t".to_owned(),
+                        driver: "exec".to_owned(),
+                        config: HashMap::new(),
+                        resources: Resources { cpu_mhz: 500, memory_mb: 1024, network_mbps: 100 },
+                    };
+                    let job = Job {
+                        name: "scored".to_owned(),
+                        task_groups: vec![TaskGroup {
+                            name: "web".to_owned(),
+                            count: group_count,
+                            tasks: vec![task],
+                            constraints: vec![],
+                            affinities: vec![Affinity {
+                                left: "dc".to_owned(),
+                                right: "dc1".to_owned(),
+                                operand: "=".to_owned(),
+                                weight: 50,
+                            }],
+                            spreads: vec![Spread {
+                                attribute: "dc".to_owned(),
+                                targets: vec![
+                                    SpreadTarget { value: "dc1".to_owned(), percent: 40 },
+                                    SpreadTarget { value: "dc2".to_owned(), percent: 30 },
+                                ],
+                            }],
+                        }],
+                        ..Job::default()
+                    };
+                    state.upsert_job(job).ok();
+
+                    let eval = Evaluation {
+                        id: "bench-scored".into(),
+                        job_id: "scored".into(),
+                        priority: 50,
+                        trigger: EvalTrigger::JobRegister,
+                        status: EvalStatus::Pending,
+                    };
+
+                    (state, eval)
+                },
+                |(state, eval)| {
+                    black_box(process_eval(eval, state));
+                },
+                criterion::BatchSize::LargeInput,
+            );
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_state_upsert_job,
@@ -184,5 +287,6 @@ criterion_group!(
     bench_eval_queue,
     bench_raft_log,
     bench_raft_log_read,
+    bench_scoring_path,
 );
 criterion_main!(benches);
